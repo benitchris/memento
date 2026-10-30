@@ -688,3 +688,4 @@ export const MockStore = {
     }
   },
 };
+

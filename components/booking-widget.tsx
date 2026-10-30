@@ -342,3 +342,4 @@ export function BookingWidget({ property, selectedUnit }: BookingWidgetProps) {
     </div>
   );
 }
+

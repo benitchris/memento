@@ -38,3 +38,4 @@ export function Logo({ className = '', showTagline = false }: LogoProps) {
     </Link>
   );
 }
+

@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/logo';
 import { useMemento } from '@/lib/context/memento-context';
-import { Lock, Mail, User, Phone, ArrowRight, ShieldCheck } from 'lucide-react';
+import { isSupabaseConfigured } from '@/lib/data/service';
+import { createClient } from '@/lib/supabase/client';
+import { Lock, Mail, User, Phone, ArrowRight, ShieldCheck, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -16,15 +18,55 @@ export default function RegisterPage() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    setTimeout(() => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+              phone_number: phone,
+              role: 'traveller',
+            },
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+          },
+        });
+
+        if (error) {
+          setErrorMsg(error.message);
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (data.session) {
+          router.push('/dashboard');
+        } else {
+          setSuccessMsg('Registration successful! Please check your email inbox to confirm your account.');
+          setIsSubmitting(false);
+        }
+      } else {
+        // Fallback demo state
+        setTimeout(() => {
+          setIsSubmitting(false);
+          switchRole('traveller');
+          router.push('/dashboard');
+        }, 500);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Registration failed');
       setIsSubmitting(false);
-      switchRole('traveller');
-      router.push('/dashboard');
-    }, 600);
+    }
   };
 
   return (
@@ -40,6 +82,20 @@ export default function RegisterPage() {
       </div>
 
       <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6 sm:p-8 shadow-sm space-y-6">
+        {errorMsg && (
+          <div className="rounded-2xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+            <span>{successMsg}</span>
+          </div>
+        )}
+
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-stone-600">
@@ -103,6 +159,7 @@ export default function RegisterPage() {
                 placeholder="At least 8 characters"
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                minLength={8}
                 className="w-full bg-transparent text-xs text-stone-900 focus:outline-none"
               />
             </div>

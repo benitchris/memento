@@ -43,3 +43,4 @@ export function generateBookingRef(): string {
   }
   return `MMT-${year}-${randomStr}`;
 }
+

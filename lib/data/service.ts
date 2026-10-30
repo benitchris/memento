@@ -86,3 +86,4 @@ export const MementoService = {
     return MockStore.isFavourite(propertyId);
   },
 };
+

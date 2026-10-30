@@ -355,3 +355,4 @@ export default function PropertyDetailPage() {
     </div>
   );
 }
+

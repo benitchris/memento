@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/logo';
 import { useMemento } from '@/lib/context/memento-context';
 import { UserRole } from '@/lib/types';
-import { Lock, Mail, ArrowRight, Sparkles, CheckCircle2 } from 'lucide-react';
+import { isSupabaseConfigured } from '@/lib/data/service';
+import { createClient } from '@/lib/supabase/client';
+import { Lock, Mail, ArrowRight, Sparkles, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,25 +19,73 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleEmailLogin = (e: React.FormEvent) => {
+  const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    // Simulating login & redirect
-    setTimeout(() => {
+    setErrorMsg(null);
+
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) {
+          setErrorMsg(error.message);
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (data.user) {
+          router.push('/dashboard');
+          return;
+        }
+      } else {
+        // Instant Demo fallback
+        setTimeout(() => {
+          setIsSubmitting(false);
+          switchRole('traveller');
+          router.push('/dashboard');
+        }, 500);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Login failed');
       setIsSubmitting(false);
-      switchRole('traveller');
-      router.push('/dashboard');
-    }, 600);
+    }
   };
 
-  const handleOAuthLogin = (provider: 'google' | 'apple') => {
-    // In production with Supabase configured, calls supabase.auth.signInWithOAuth({ provider })
+  const handleOAuthLogin = async (provider: 'google' | 'apple') => {
     setIsSubmitting(true);
-    setTimeout(() => {
+    setErrorMsg(null);
+
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider,
+          options: {
+            redirectTo: `${window.location.origin}/auth/callback`,
+          },
+        });
+
+        if (error) {
+          setErrorMsg(error.message);
+          setIsSubmitting(false);
+        }
+      } else {
+        // Fallback demo state
+        setTimeout(() => {
+          setIsSubmitting(false);
+          switchRole('traveller');
+          router.push('/dashboard');
+        }, 500);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || `Failed to sign in with ${provider}`);
       setIsSubmitting(false);
-      switchRole('traveller');
-      router.push('/dashboard');
-    }, 600);
+    }
   };
 
   const handleQuickDemoLogin = (role: UserRole) => {
@@ -58,7 +108,15 @@ export default function LoginPage() {
       </div>
 
       <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6 sm:p-8 shadow-sm space-y-6">
-        {/* Quick Demo Logins for Tester */}
+        {/* Error Notification */}
+        {errorMsg && (
+          <div className="rounded-2xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {/* Quick Demo Logins for Reviewer/Tester */}
         <div className="rounded-2xl bg-orange-50/80 p-3.5 border border-orange-100 text-xs">
           <div className="flex items-center gap-1.5 font-bold text-[#b94726]">
             <Sparkles className="h-3.5 w-3.5" />
@@ -93,8 +151,9 @@ export default function LoginPage() {
         <div className="space-y-2.5">
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={() => handleOAuthLogin('google')}
-            className="flex w-full items-center justify-center gap-3 rounded-2xl border border-stone-300 bg-white py-2.5 px-4 text-xs font-bold text-stone-700 shadow-sm hover:bg-stone-50 transition-colors"
+            className="flex w-full items-center justify-center gap-3 rounded-2xl border border-stone-300 bg-white py-2.5 px-4 text-xs font-bold text-stone-700 shadow-sm hover:bg-stone-50 transition-colors disabled:opacity-50"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24">
               <path
@@ -119,13 +178,14 @@ export default function LoginPage() {
 
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={() => handleOAuthLogin('apple')}
-            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-black py-2.5 px-4 text-xs font-bold text-white shadow-sm hover:bg-stone-900 transition-colors"
+            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-black py-2.5 px-4 text-xs font-bold text-white shadow-sm hover:bg-stone-900 transition-colors disabled:opacity-50"
           >
             <svg className="h-4 w-4 fill-current" viewBox="0 0 170 170">
               <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.04-7.69-7.79-11.97-14.24-6.84-10.37-12.02-21.68-15.54-33.93-3.52-12.24-5.28-23.77-5.28-34.6 0-14.77 3.75-26.96 11.26-36.56 7.51-9.6 16.79-14.49 27.84-14.67 4.13 0 9.07 1.09 14.83 3.27 5.76 2.18 9.38 3.32 10.87 3.42 2.06 0 5.86-1.25 11.39-3.74 5.53-2.49 10.34-3.64 14.42-3.46 13.48.65 24.08 5.76 31.81 15.33-11.75 7.07-17.48 16.89-17.18 29.47.22 9.79 3.96 17.88 11.22 24.28 7.26 6.4 15.93 10.02 26.01 10.87-2.39 7.4-5.32 14.99-8.79 22.77zM119.22 31.85c0-7.72 2.76-15.01 8.28-21.88 5.52-6.87 12.44-11.08 20.76-12.63.11 1.09.16 2.06.16 2.93 0 7.72-2.93 15.17-8.8 22.35-5.87 7.18-12.87 11.46-21 12.84-.22-1.2-.4-2.4-.4-3.61z" />
             </svg>
-            <span>Sign in with Apple</span>
+            <span>Sign in with Apple (iCloud)</span>
           </button>
         </div>
 
@@ -160,9 +220,6 @@ export default function LoginPage() {
               <label className="block text-xs font-bold uppercase tracking-wider text-stone-600">
                 Password
               </label>
-              <Link href="#" className="text-[11px] text-[#b94726] hover:underline">
-                Forgot?
-              </Link>
             </div>
             <div className="mt-1 flex items-center rounded-xl border border-stone-300 p-2.5 focus-within:border-stone-800">
               <Lock className="h-4 w-4 text-stone-400 mr-2" />

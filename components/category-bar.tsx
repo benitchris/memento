@@ -71,3 +71,4 @@ export function CategoryBar({ selectedType = 'all', onSelect, className = '' }: 
     </div>
   );
 }
+

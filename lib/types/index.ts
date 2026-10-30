@@ -215,3 +215,4 @@ export interface SearchFilters {
   amenities?: string[];
   sortBy?: 'recommended' | 'price_asc' | 'price_desc' | 'rating' | 'newest';
 }
+

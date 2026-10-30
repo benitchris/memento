@@ -719,3 +719,4 @@ CREATE POLICY "Hosts and Admins view verification docs" ON public.host_verificat
 
 CREATE POLICY "Hosts upload verification docs" ON public.host_verifications
     FOR INSERT WITH CHECK (auth.uid() = host_id);
+

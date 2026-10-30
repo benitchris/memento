@@ -33,3 +33,4 @@ VALUES
     ('a1111111-1111-1111-1111-111111111111', 'Pet Friendly', 'features', 'Heart'),
     ('a1111111-1111-1111-1111-111111111112', 'Wheelchair Accessible', 'safety', 'ShieldCheck')
 ON CONFLICT (name) DO NOTHING;
+
