@@ -79,6 +79,8 @@ When connecting your Supabase project:
    - `supabase/migrations/003_profile_role_guard.sql` — blocks self-promotion to admin.
    - `supabase/migrations/004_property_photo_storage.sql` — creates the `property-images`
      storage bucket and owner-only upload policies used by the host photo workflow.
+   - `supabase/migrations/005_listing_publications.sql` — shares administrator review
+     decisions for the bundled showcase listings across every account and device.
 4. Seed authentic Rwandan destinations and amenities:
    - Run `supabase/seed.sql` in the **Supabase SQL Editor**.
 5. Grant the first administrator manually in the SQL Editor:
@@ -107,6 +109,17 @@ Memento uses one account for travelling and hosting.
 
 There are no demo persona shortcuts in production. In local preview without Supabase
 credentials, the interface falls back to the bundled demonstration data.
+
+### Shared marketplace data
+
+Listings submitted through **Become a Host** are written to Supabase (`properties`, `units`
+and `property_images`) with the status `under_review`. Travellers on any device see a
+listing as soon as an administrator approves it; open pages refresh when the tab regains
+focus and at most once a minute.
+
+The `[DEMO]` showcase stays bundled with the app. Its review decisions, including the
+pending Huye homestay, are published through `listing_publications` (migration 005) so an
+approval made in the admin portal is visible to travellers too.
 
 ---
 
@@ -149,6 +162,7 @@ credentials, the interface falls back to the bundled demonstration data.
 │   ├── migrations/002_onboarding_column.sql # First-run onboarding flag
 │   ├── migrations/003_profile_role_guard.sql # Prevents self-promotion to admin
 │   ├── migrations/004_property_photo_storage.sql # Property photo bucket & policies
+│   ├── migrations/005_listing_publications.sql # Shared decisions for showcase listings
 │   └── seed.sql                # Rwandan destinations & amenities seed
 └── public/
     └── images/                 # High-resolution accommodation photography

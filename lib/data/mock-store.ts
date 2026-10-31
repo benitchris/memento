@@ -92,7 +92,13 @@ const listeners = new Set<() => void>();
 function persist() {
   if (typeof window !== 'undefined') {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(memoryState));
+      // Shared listings are re-fetched from Supabase on every load, so they
+      // are kept out of localStorage to avoid showing stale copies.
+      const persistedState = {
+        ...memoryState,
+        properties: memoryState.properties.filter((property) => property.source !== 'cloud'),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedState));
     } catch (e) {
       console.error('Failed to persist store', e);
     }
@@ -260,6 +266,50 @@ export const MockStore = {
 
   getPropertyById(id: string): Property | undefined {
     return memoryState.properties.find((p) => p.id === id || p.slug === id);
+  },
+
+  // SHARED MARKETPLACE: replace the cloud-backed listings while keeping the
+  // bundled demonstration stays available for previews.
+  setCloudProperties(properties: Property[]) {
+    const cloudIds = new Set(properties.map((property) => property.id));
+    const localProperties = memoryState.properties.filter(
+      (property) => property.source !== 'cloud' && !cloudIds.has(property.id)
+    );
+
+    memoryState.properties = [...properties, ...localProperties];
+    persist();
+  },
+
+  // Apply admin decisions made for the bundled showcase listings so every
+  // browser sees the same status. Cloud listings stay authoritative in Supabase.
+  applyListingStatusOverrides(overrides: Record<string, PropertyStatus>) {
+    let changed = false;
+
+    for (const property of memoryState.properties) {
+      if (property.source === 'cloud') continue;
+      const nextStatus = overrides[property.id];
+      if (nextStatus && property.status !== nextStatus) {
+        property.status = nextStatus;
+        changed = true;
+      }
+    }
+
+    if (changed) persist();
+    return changed;
+  },
+
+  upsertCloudProperty(property: Property) {
+    const existingIndex = memoryState.properties.findIndex(
+      (item) => item.id === property.id
+    );
+
+    if (existingIndex >= 0) {
+      memoryState.properties[existingIndex] = property;
+    } else {
+      memoryState.properties.unshift(property);
+    }
+
+    persist();
   },
 
   // UNIVERSAL AVAILABILITY & HIERARCHY OVERLAP LOGIC (Section 4 & Section 10)

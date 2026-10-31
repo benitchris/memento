@@ -20,8 +20,7 @@ import {
 
 function SearchPageContent() {
   const searchParams = useSearchParams();
-  const { currency } = useMemento();
-
+  const { currency, dataRevision } = useMemento();
   const urlDest = searchParams.get('destination') || '';
   const urlCheckIn = searchParams.get('checkIn') || '';
   const urlCheckOut = searchParams.get('checkOut') || '';
@@ -58,7 +57,7 @@ function SearchPageContent() {
 
     const data = MockStore.getProperties(filters);
     setResults(data);
-  }, [destination, propertyType, guests, minPrice, maxPrice, selectedAmenities, sortBy]);
+  }, [destination, propertyType, guests, minPrice, maxPrice, selectedAmenities, sortBy, dataRevision]);
 
   const toggleAmenity = (id: string) => {
     if (selectedAmenities.includes(id)) {

@@ -136,6 +136,8 @@ export interface Property {
   units?: BookableUnit[];
   host?: UserProfile;
   amenities?: Amenity[];
+  /** Where the listing record lives. Cloud listings are shared through Supabase. */
+  source?: 'demo' | 'cloud';
 }
 
 export type BookingStatus = 'pending' | 'confirmed' | 'rejected' | 'cancelled' | 'completed';

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { MockStore } from '@/lib/data/mock-store';
 import { useMemento } from '@/lib/context/memento-context';
 import { isSupabaseConfigured } from '@/lib/data/service';
+import { createCloudProperty } from '@/lib/data/cloud-properties';
 import { createClient } from '@/lib/supabase/client';
 import { PropertyType, BookableUnit, Property, PropertyImage } from '@/lib/types';
 import { PropertyPhotoManager } from '@/components/property-photo-manager';
@@ -170,25 +171,36 @@ export default function BecomeAHostPage() {
         role: (currentUser.role === 'admin' ? 'admin' : 'host') as 'host' | 'admin' | 'traveller',
       };
 
-      // Create property in state with status 'under_review'
-      const newProp = MockStore.createProperty(
-        {
-          title: propertyTitle.trim(),
-          property_type: propertyType,
-          destination_id: destinationId,
-          address: address || 'Kigali, Rwanda',
-          city: city || 'Kigali',
-          province: province || 'Kigali City',
-          description: description || 'Beautiful newly listed accommodation in Rwanda.',
-          check_in_time: checkInTime,
-          check_out_time: checkOutTime,
-          cancellation_policy: cancellationPolicy,
-          instant_book: instantBook,
+      // Create the listing. With Supabase configured it becomes a shared,
+      // admin-reviewable record; otherwise it stays in the local preview store.
+      const propertyPayload: Partial<Property> = {
+        title: propertyTitle.trim(),
+        property_type: propertyType,
+        destination_id: destinationId,
+        address: address || 'Kigali, Rwanda',
+        city: city || 'Kigali',
+        province: province || 'Kigali City',
+        description: description || 'Beautiful newly listed accommodation in Rwanda.',
+        check_in_time: checkInTime,
+        check_out_time: checkOutTime,
+        cancellation_policy: cancellationPolicy,
+        instant_book: instantBook,
+        images: photos,
+      };
+
+      let newProp: Property;
+
+      if (isSupabaseConfigured() && supabaseUser) {
+        newProp = await createCloudProperty({
+          host: hostProfile,
+          property: propertyPayload,
+          units,
           images: photos,
-        },
-        units,
-        hostProfile
-      );
+        });
+        MockStore.upsertCloudProperty(newProp);
+      } else {
+        newProp = MockStore.createProperty(propertyPayload, units, hostProfile);
+      }
 
       // A traveller account becomes a host once their first listing is
       // submitted. Never downgrade an administrator in the process.

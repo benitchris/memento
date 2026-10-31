@@ -1,8 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { MockStore } from '@/lib/data/mock-store';
+import {
+  isCloudListing,
+  publishListingStatus,
+  updateCloudPropertyStatus,
+} from '@/lib/data/cloud-properties';
+import { isSupabaseConfigured } from '@/lib/data/service';
 import { useMemento } from '@/lib/context/memento-context';
 import { formatRWF, formatUSD, formatDate } from '@/lib/utils/format';
 import { PropertyStatus } from '@/lib/types';
@@ -22,13 +28,17 @@ import {
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const { currency } = useMemento();
+  const { currency, dataRevision } = useMemento();
 
   const [activeTab, setActiveTab] = useState<'approvals' | 'properties' | 'reservations' | 'settings'>('approvals');
   const [commissionRate, setCommissionRate] = useState<number>(8.0);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  const state = MockStore.getState();
+  // Re-read the store whenever shared cloud listings finish hydrating.
+  const state = useMemo(() => MockStore.getState(), [dataRevision]);
   const allProperties = state.properties;
   const pendingApprovals = allProperties.filter(
     (p) => p.status === 'under_review' || p.status === 'submitted'
@@ -43,8 +53,51 @@ export default function AdminDashboard() {
     .filter((b) => b.status === 'confirmed' || b.status === 'completed')
     .reduce((sum, b) => sum + b.service_fee_rwf, 0);
 
-  const handleUpdateStatus = (propertyId: string, status: PropertyStatus) => {
+  const handleUpdateStatus = async (propertyId: string, status: PropertyStatus) => {
+    const property = MockStore.getPropertyById(propertyId);
+    setStatusError(null);
+    setStatusNotice(null);
+    setUpdatingId(propertyId);
+
+    let shareWarning: string | null = null;
+
+    // Listings created by real hosts live in Supabase; write the decision
+    // there first so every traveller sees the change, then mirror it locally.
+    if (isCloudListing(property)) {
+      try {
+        await updateCloudPropertyStatus(propertyId, status);
+      } catch (error) {
+        setStatusError(
+          error instanceof Error ? error.message : 'Could not update this listing. Try again.'
+        );
+        setUpdatingId(null);
+        return;
+      }
+    } else if (isSupabaseConfigured()) {
+      // Showcase listings ship with the app, so their decision has to be
+      // published separately for travellers on other devices to see it.
+      try {
+        await publishListingStatus(propertyId, status);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Could not share the decision.';
+        shareWarning = `${message} The change was saved on this device only. Run supabase/migrations/005_listing_publications.sql in Supabase to publish showcase-listing decisions.`;
+      }
+    }
+
     MockStore.updatePropertyStatus(propertyId, status);
+    setUpdatingId(null);
+
+    if (shareWarning) {
+      setStatusError(shareWarning);
+      return;
+    }
+
+    setStatusNotice(
+      status === 'approved'
+        ? 'Listing approved — it is now visible to travellers.'
+        : `Listing marked as ${status.replace(/_/g, ' ')}.`
+    );
   };
 
   const handleSaveSettings = (e: React.FormEvent) => {
@@ -75,6 +128,30 @@ export default function AdminDashboard() {
           </p>
         </div>
       </div>
+
+      {statusError && (
+        <div className="flex items-start justify-between gap-4 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-xs text-rose-700">
+          <p className="font-semibold">{statusError}</p>
+          <button
+            onClick={() => setStatusError(null)}
+            className="shrink-0 font-bold uppercase tracking-wider hover:text-rose-900"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {statusNotice && (
+        <div className="flex items-start justify-between gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-xs text-emerald-800">
+          <p className="font-semibold">{statusNotice}</p>
+          <button
+            onClick={() => setStatusNotice(null)}
+            className="shrink-0 font-bold uppercase tracking-wider hover:text-emerald-900"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* High-Level Platform Statistics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -178,14 +255,16 @@ export default function AdminDashboard() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleUpdateStatus(prop.id, 'approved')}
-                      className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700"
+                      disabled={updatingId === prop.id}
+                      className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
                     >
                       <CheckCircle className="h-3.5 w-3.5" />
-                      <span>Approve & Make Live</span>
+                      <span>{updatingId === prop.id ? 'Publishing...' : 'Approve & Make Live'}</span>
                     </button>
                     <button
                       onClick={() => handleUpdateStatus(prop.id, 'rejected')}
-                      className="flex items-center gap-1.5 rounded-xl border border-stone-300 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                      disabled={updatingId === prop.id}
+                      className="flex items-center gap-1.5 rounded-xl border border-stone-300 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       <span>Reject</span>
@@ -316,16 +395,18 @@ export default function AdminDashboard() {
                       {p.status === 'approved' ? (
                         <button
                           onClick={() => handleUpdateStatus(p.id, 'suspended')}
-                          className="rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"
+                          disabled={updatingId === p.id}
+                          className="rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
                         >
                           Suspend
                         </button>
                       ) : (
                         <button
                           onClick={() => handleUpdateStatus(p.id, 'approved')}
-                          className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                          disabled={updatingId === p.id}
+                          className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                         >
-                          Approve
+                          {updatingId === p.id ? 'Publishing...' : 'Approve'}
                         </button>
                       )}
                     </div>

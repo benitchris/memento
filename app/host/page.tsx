@@ -6,6 +6,10 @@ import { MockStore } from '@/lib/data/mock-store';
 import { useMemento } from '@/lib/context/memento-context';
 import { PropertyImage } from '@/lib/types';
 import { PropertyPhotoManager } from '@/components/property-photo-manager';
+import {
+  isCloudListing,
+  persistCloudPropertyImages,
+} from '@/lib/data/cloud-properties';
 import { formatRWF, formatUSD, formatDate } from '@/lib/utils/format';
 import {
   Building,
@@ -31,6 +35,7 @@ export default function HostDashboardPage() {
   const [activeTab, setActiveTab] = useState<'bookings' | 'properties' | 'calendar' | 'reviews'>('bookings');
   const [responseTexts, setResponseTexts] = useState<Record<string, string>>({});
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoEditorId, setPhotoEditorId] = useState<string | null>(null);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
   const [, bumpPhotoVersion] = useState(0);
@@ -66,6 +71,35 @@ export default function HostDashboardPage() {
     if (!photoEditorId) return;
     MockStore.updatePropertyImages(photoEditorId, images);
     bumpPhotoVersion((version) => version + 1);
+  };
+
+  // Persist the cloud copy when the host finishes editing, not on every
+  // arrow click. The local store already updated optimistically.
+  const closePhotoEditor = () => {
+    const editorId = photoEditorId;
+    const property = hostProperties.find((item) => item.id === editorId);
+
+    setPhotoEditorId(null);
+
+    if (!editorId || !isCloudListing(property)) return;
+
+    const images = property?.images || [];
+    void persistCloudPropertyImages(editorId, images)
+      .then((saved) => {
+        MockStore.updatePropertyImages(editorId, saved);
+        bumpPhotoVersion((version) => version + 1);
+        setPhotoError(null);
+        setActionSuccessMsg('Property photos updated for all travellers.');
+        setTimeout(() => setActionSuccessMsg(null), 3000);
+      })
+      .catch((error) => {
+        console.error(error);
+        setPhotoError(
+          error instanceof Error
+            ? `Photos saved on this device, but could not sync: ${error.message}`
+            : 'Photos saved on this device, but could not sync to the marketplace.'
+        );
+      });
   };
 
   // Fetch bookings for this host's properties
@@ -151,6 +185,21 @@ export default function HostDashboardPage() {
         <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-xs font-semibold text-emerald-800 flex items-center gap-2 animate-in fade-in">
           <CheckCircle className="h-4 w-4 text-emerald-600" />
           <span>{actionSuccessMsg}</span>
+        </div>
+      )}
+
+      {photoError && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-800 flex items-start gap-2">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <div className="flex-1">{photoError}</div>
+          <button
+            type="button"
+            onClick={() => setPhotoError(null)}
+            className="text-rose-500 hover:text-rose-700"
+            aria-label="Dismiss photo sync error"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -564,7 +613,7 @@ export default function HostDashboardPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setPhotoEditorId(null)}
+                onClick={closePhotoEditor}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-100 text-stone-600 hover:bg-stone-200"
                 aria-label="Close photo manager"
               >
@@ -585,7 +634,7 @@ export default function HostDashboardPage() {
             <div className="flex justify-end border-t border-stone-200 px-6 py-4">
               <button
                 type="button"
-                onClick={() => setPhotoEditorId(null)}
+                onClick={closePhotoEditor}
                 className="rounded-xl bg-stone-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-stone-800"
               >
                 Done

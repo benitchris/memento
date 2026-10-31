@@ -5,6 +5,10 @@ import { UserProfile, InAppNotification, UserRole } from '@/lib/types';
 import { MockStore } from '@/lib/data/mock-store';
 import { DEMO_USERS } from '@/lib/data/mock-data';
 import { isSupabaseConfigured } from '@/lib/data/service';
+import {
+  fetchCloudProperties,
+  fetchListingPublications,
+} from '@/lib/data/cloud-properties';
 import { createClient } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
 
@@ -22,6 +26,8 @@ interface MementoContextType {
   currency: 'RWF' | 'USD';
   setCurrency: (c: 'RWF' | 'USD') => void;
   refresh: () => void;
+  /** Bumps whenever shared marketplace listings are refreshed. */
+  dataRevision: number;
 }
 
 const defaultContext: MementoContextType = {
@@ -38,6 +44,7 @@ const defaultContext: MementoContextType = {
   currency: 'RWF',
   setCurrency: () => {},
   refresh: () => {},
+  dataRevision: 0,
 };
 
 const MementoContext = createContext<MementoContextType>(defaultContext);
@@ -53,6 +60,7 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
     'prop-rubavu-kivu-lodge',
   ]);
   const [currency, setCurrency] = useState<'RWF' | 'USD'>('RWF');
+  const [dataRevision, setDataRevision] = useState(0);
 
   // Build a UserProfile from a Supabase user + optional DB profile row
   const buildProfile = useCallback(
@@ -104,6 +112,24 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
     [buildProfile]
   );
 
+  // Pull the shared marketplace listings this account is allowed to see.
+  const syncCloudProperties = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+
+    try {
+      const [properties, publications] = await Promise.all([
+        fetchCloudProperties(),
+        fetchListingPublications(),
+      ]);
+      MockStore.setCloudProperties(properties);
+      MockStore.applyListingStatusOverrides(publications);
+    } catch (error) {
+      console.error('Could not load shared marketplace listings', error);
+    } finally {
+      setDataRevision((revision) => revision + 1);
+    }
+  }, []);
+
   // Bootstrap: listen to Supabase auth changes
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -130,6 +156,7 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
         setIsAuthenticated(false);
         setIsLoadingAuth(false);
       }
+      void syncCloudProperties();
     });
 
     // Listen for auth state changes (login / logout / token refresh)
@@ -137,15 +164,46 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         loadSupabaseProfile(session.user);
         setIsAuthenticated(true);
+        void syncCloudProperties();
       } else {
         setSupabaseUser(null);
         setIsAuthenticated(false);
         setCurrentUser(DEMO_USERS.traveller);
+        void syncCloudProperties();
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [loadSupabaseProfile]);
+  }, [loadSupabaseProfile, syncCloudProperties]);
+
+  // Keep the UI in sync when listings are added, approved or re-photographed.
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    return MockStore.subscribe(() => {
+      setDataRevision((revision) => revision + 1);
+    });
+  }, []);
+
+  // Approvals made in another tab/browser show up when the traveller returns
+  // to the tab, without needing a full page reload.
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void syncCloudProperties();
+    };
+
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    const interval = window.setInterval(refreshWhenVisible, 60000);
+
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      window.clearInterval(interval);
+    };
+  }, [syncCloudProperties]);
 
   const signOut = useCallback(async () => {
     if (isSupabaseConfigured()) {
@@ -155,7 +213,8 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
     setSupabaseUser(null);
     setIsAuthenticated(false);
     setCurrentUser(DEMO_USERS.traveller);
-  }, []);
+    void syncCloudProperties();
+  }, [syncCloudProperties]);
 
   const markNotificationRead = useCallback((id: string) => {
     MockStore.markNotificationRead(id);
@@ -175,13 +234,14 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     if (isSupabaseConfigured() && supabaseUser) {
       await loadSupabaseProfile(supabaseUser);
+      await syncCloudProperties();
     } else {
       const state = MockStore.getState();
       setCurrentUser(state.currentUser);
       setNotifications(MockStore.getNotifications(state.currentUser.id));
       setFavourites([...state.favourites]);
     }
-  }, [supabaseUser, loadSupabaseProfile]);
+  }, [supabaseUser, loadSupabaseProfile, syncCloudProperties]);
 
   return (
     <MementoContext.Provider
@@ -199,6 +259,7 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
         currency,
         setCurrency,
         refresh,
+        dataRevision,
       }}
     >
       {children}

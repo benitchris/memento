@@ -28,7 +28,7 @@ export default function PropertyDetailPage() {
   const router = useRouter();
   const propertyId = params?.id as string;
 
-  const { isFavourite, toggleFavourite } = useMemento();
+  const { isFavourite, toggleFavourite, dataRevision } = useMemento();
   const [property, setProperty] = useState<Property | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<BookableUnit | null>(null);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
@@ -42,9 +42,12 @@ export default function PropertyDetailPage() {
         if (prop.units && prop.units.length > 0) {
           setSelectedUnit(prop.units[0]);
         }
+      } else {
+        setProperty(null);
+        setSelectedUnit(null);
       }
     }
-  }, [propertyId]);
+  }, [propertyId, dataRevision]);
 
   if (!property) {
     return (
