@@ -193,6 +193,43 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                {/* Submitted photography */}
+                {prop.images?.length > 0 && (
+                  <div>
+                    <span className="mb-2 block text-[11px] font-bold uppercase text-stone-500">
+                      Submitted Photos ({prop.images.length})
+                    </span>
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {prop.images.slice(0, 5).map((image, index) => (
+                        <a
+                          key={image.id}
+                          href={image.image_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl border border-stone-200 bg-stone-100"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={image.image_url}
+                            alt={image.caption || `${prop.title} photo ${index + 1}`}
+                            className="h-full w-full object-cover transition-transform hover:scale-105"
+                          />
+                          {image.is_primary && (
+                            <span className="absolute left-1 top-1 rounded-full bg-white/95 px-1.5 py-0.5 text-[8px] font-bold uppercase text-stone-900 shadow-sm">
+                              Cover
+                            </span>
+                          )}
+                          {index === 4 && prop.images.length > 5 && (
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-sm font-bold text-white">
+                              +{prop.images.length - 5}
+                            </span>
+                          )}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Units configured in this property */}
                 <div className="rounded-2xl bg-stone-50 p-4 space-y-2">
                   <span className="block text-[11px] font-bold text-stone-500 uppercase">
@@ -232,8 +269,26 @@ export default function AdminDashboard() {
               {allProperties.map((p) => (
                 <tr key={p.id} className="hover:bg-stone-50">
                   <td className="py-3">
-                    <div className="font-bold text-stone-900">{p.title}</div>
-                    <div className="text-[11px] text-stone-500">{p.city}, {p.province}</div>
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-10 w-14 shrink-0 overflow-hidden rounded-lg border border-stone-200 bg-stone-100">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={
+                            p.images?.find((image) => image.is_primary)?.image_url ||
+                            p.images?.[0]?.image_url ||
+                            '/images/kigali-loft.png'
+                          }
+                          alt={p.title}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      <div>
+                        <div className="font-bold text-stone-900">{p.title}</div>
+                        <div className="text-[11px] text-stone-500">
+                          {p.city}, {p.province} · {p.images?.length || 0} photos
+                        </div>
+                      </div>
+                    </div>
                   </td>
                   <td className="py-3 capitalize">{p.property_type.replace('_', ' ')}</td>
                   <td className="py-3 font-semibold">{p.units?.length || 0} units</td>

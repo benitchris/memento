@@ -77,6 +77,8 @@ When connecting your Supabase project:
    - `supabase/migrations/001_initial_schema.sql` — schema, RLS and booking functions.
    - `supabase/migrations/002_onboarding_column.sql` — adds `profiles.onboarding_complete`.
    - `supabase/migrations/003_profile_role_guard.sql` — blocks self-promotion to admin.
+   - `supabase/migrations/004_property_photo_storage.sql` — creates the `property-images`
+     storage bucket and owner-only upload policies used by the host photo workflow.
 4. Seed authentic Rwandan destinations and amenities:
    - Run `supabase/seed.sql` in the **Supabase SQL Editor**.
 5. Grant the first administrator manually in the SQL Editor:
@@ -146,6 +148,7 @@ credentials, the interface falls back to the bundled demonstration data.
 │   ├── migrations/001_initial_schema.sql # Complete PostgreSQL schema, RLS & functions
 │   ├── migrations/002_onboarding_column.sql # First-run onboarding flag
 │   ├── migrations/003_profile_role_guard.sql # Prevents self-promotion to admin
+│   ├── migrations/004_property_photo_storage.sql # Property photo bucket & policies
 │   └── seed.sql                # Rwandan destinations & amenities seed
 └── public/
     └── images/                 # High-resolution accommodation photography

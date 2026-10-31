@@ -2,6 +2,7 @@
 
 import {
   Property,
+  PropertyImage,
   BookableUnit,
   Booking,
   Review,
@@ -97,6 +98,35 @@ function persist() {
     }
   }
   listeners.forEach((listener) => listener());
+}
+
+// Keeps exactly one cover image, fixes stale ids/property ids and guarantees
+// every property has at least one photo to render.
+function normalisePropertyImages(propertyId: string, images: PropertyImage[]): PropertyImage[] {
+  const source =
+    images && images.length > 0
+      ? images
+      : [
+          {
+            id: `img-${propertyId}-1`,
+            property_id: propertyId,
+            image_url: '/images/kigali-loft.png',
+            caption: 'Property overview',
+            display_order: 1,
+            is_primary: true,
+          },
+        ];
+
+  const primaryIndex = source.findIndex((image) => image.is_primary);
+  const chosenIndex = primaryIndex >= 0 ? primaryIndex : 0;
+
+  return source.map((image, index) => ({
+    ...image,
+    id: image.id || `img-${propertyId}-${index + 1}`,
+    property_id: propertyId,
+    display_order: index + 1,
+    is_primary: index === chosenIndex,
+  }));
 }
 
 export const MockStore = {
@@ -482,8 +512,21 @@ export const MockStore = {
   },
 
   // HOST: CREATE PROPERTY & UNITS (Section 7)
-  createProperty(propertyData: Partial<Property>, units: Partial<BookableUnit>[]): Property {
-    const hostUser = memoryState.currentUser;
+  createProperty(
+    propertyData: Partial<Property>,
+    units: Partial<BookableUnit>[],
+    hostOverride?: Partial<UserProfile>
+  ): Property {
+    // Prefer the authenticated host identity so the listing appears in their
+    // dashboard. Falls back to the demo user when running without Supabase.
+    const hostUser: UserProfile = {
+      ...memoryState.currentUser,
+      ...hostOverride,
+      id: hostOverride?.id || memoryState.currentUser.id,
+      email: hostOverride?.email || memoryState.currentUser.email,
+      full_name: hostOverride?.full_name || memoryState.currentUser.full_name,
+      role: hostOverride?.role || memoryState.currentUser.role,
+    };
     const propId = `prop-${Date.now()}`;
     const slug = propertyData.title
       ? propertyData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + `-${Date.now() % 1000}`
@@ -530,9 +573,7 @@ export const MockStore = {
       rating_average: 0,
       review_count: 0,
       created_at: new Date().toISOString(),
-      images: propertyData.images && propertyData.images.length > 0 ? propertyData.images : [
-        { id: `img-${Date.now()}`, property_id: propId, image_url: '/images/kigali-loft.png', caption: 'Property overview', display_order: 1, is_primary: true }
-      ],
+      images: normalisePropertyImages(propId, propertyData.images || []),
       destination: DEMO_DESTINATIONS.find((d) => d.id === propertyData.destination_id) || DEMO_DESTINATIONS[0],
       host: hostUser,
       amenities: propertyData.amenities || DEMO_AMENITIES.slice(0, 3),
@@ -555,6 +596,16 @@ export const MockStore = {
 
     persist();
     return newProperty;
+  },
+
+  // HOST: ADD / REMOVE / REORDER PROPERTY PHOTOS
+  updatePropertyImages(propertyId: string, images: PropertyImage[]) {
+    const prop = memoryState.properties.find((p) => p.id === propertyId);
+    if (!prop) return false;
+
+    prop.images = normalisePropertyImages(propertyId, images);
+    persist();
+    return true;
   },
 
   // ADMIN: APPROVE / REJECT / SUSPEND PROPERTY (Section 11)

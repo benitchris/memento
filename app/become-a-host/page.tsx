@@ -6,7 +6,8 @@ import { MockStore } from '@/lib/data/mock-store';
 import { useMemento } from '@/lib/context/memento-context';
 import { isSupabaseConfigured } from '@/lib/data/service';
 import { createClient } from '@/lib/supabase/client';
-import { PropertyType, BookableUnit, Property } from '@/lib/types';
+import { PropertyType, BookableUnit, Property, PropertyImage } from '@/lib/types';
+import { PropertyPhotoManager } from '@/components/property-photo-manager';
 import { formatRWF } from '@/lib/utils/format';
 import {
   Check,
@@ -21,6 +22,8 @@ import {
   ArrowRight,
   ArrowLeft,
   Sparkles,
+  AlertCircle,
+  ImagePlus,
 } from 'lucide-react';
 
 export default function BecomeAHostPage() {
@@ -73,7 +76,9 @@ export default function BecomeAHostPage() {
 
   // Step 4 Verification Docs & Photos
   const [documentType, setDocumentType] = useState('national_id');
-  const [selectedPhotoUrl, setSelectedPhotoUrl] = useState('/images/kigali-loft.png');
+  const [photos, setPhotos] = useState<PropertyImage[]>([]);
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const destinations = MockStore.getDestinations();
 
@@ -109,15 +114,66 @@ export default function BecomeAHostPage() {
     setUnits(updated);
   };
 
+  const addSamplePhoto = (url: string, label: string) => {
+    setPhotos((current) => {
+      if (current.some((photo) => photo.image_url === url)) return current;
+
+      return [
+        ...current,
+        {
+          id: `sample-${Date.now()}-${current.length}`,
+          property_id: '',
+          image_url: url,
+          caption: label,
+          display_order: current.length + 1,
+          is_primary: current.length === 0,
+        },
+      ];
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
+
+    if (!propertyTitle.trim()) {
+      setSubmitError('Add a property title before submitting.');
+      setCurrentStep(2);
+      return;
+    }
+
+    if (photos.length === 0) {
+      setSubmitError('Add at least one property photo before submitting.');
+      setCurrentStep(4);
+      return;
+    }
+
+    if (isUploadingPhotos) {
+      setSubmitError('Please wait for your photos to finish uploading.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
+      const publicName =
+        hostType === 'business' && businessName.trim()
+          ? businessName.trim()
+          : hostFullName.trim() || currentUser.full_name;
+
+      const hostProfile = {
+        ...currentUser,
+        id: supabaseUser?.id || currentUser.id,
+        email: hostEmail || supabaseUser?.email || currentUser.email,
+        full_name: publicName,
+        phone_number: hostPhone,
+        role: (currentUser.role === 'admin' ? 'admin' : 'host') as 'host' | 'admin' | 'traveller',
+      };
+
       // Create property in state with status 'under_review'
       const newProp = MockStore.createProperty(
         {
-          title: propertyTitle || 'New Rwandan Stay',
+          title: propertyTitle.trim(),
           property_type: propertyType,
           destination_id: destinationId,
           address: address || 'Kigali, Rwanda',
@@ -128,33 +184,34 @@ export default function BecomeAHostPage() {
           check_out_time: checkOutTime,
           cancellation_policy: cancellationPolicy,
           instant_book: instantBook,
-          images: [
-            {
-              id: `img-${Date.now()}`,
-              property_id: 'pending',
-              image_url: selectedPhotoUrl,
-              caption: 'Property overview',
-              display_order: 1,
-              is_primary: true,
-            },
-          ],
+          images: photos,
         },
-        units
+        units,
+        hostProfile
       );
 
-      // A guest account becomes a host once their first listing is submitted.
-      if (isSupabaseConfigured() && supabaseUser) {
+      // A traveller account becomes a host once their first listing is
+      // submitted. Never downgrade an administrator in the process.
+      if (isSupabaseConfigured() && supabaseUser && currentUser.role === 'traveller') {
         const supabase = createClient();
-        await supabase
+        const { error } = await supabase
           .from('profiles')
           .update({ role: 'host' })
           .eq('id', supabaseUser.id);
+
+        if (error) {
+          console.error('Could not update host role', error);
+        }
+
         await refresh();
       }
 
       router.push(`/host?submitted=${newProp.id}`);
     } catch (err) {
       console.error(err);
+      setSubmitError(
+        err instanceof Error ? err.message : 'Could not submit your listing. Please try again.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -639,16 +696,94 @@ export default function BecomeAHostPage() {
         {currentStep === 4 && (
           <div className="space-y-6 animate-in fade-in">
             <h2 className="text-xl font-bold font-serif text-stone-900">
-              Step 4: Verification & Photography
+              Step 4: Property Photos & Verification
             </h2>
             <p className="text-xs text-stone-500">
-              Memento upholds strict trust standards across Rwanda. Upload documentation to verify your ownership or authorization.
+              Upload the real photos travellers will see first. Clear photos of the rooms,
+              exterior and views help your listing get approved and booked faster.
             </p>
 
-            <div className="space-y-4">
+            <div className="space-y-6">
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-600">
+                    Property Photos <span className="text-[#b94726]">*</span>
+                  </label>
+                  {photos.length > 0 && (
+                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800">
+                      {photos.length} photo{photos.length === 1 ? '' : 's'} added
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2">
+                  <PropertyPhotoManager
+                    images={photos}
+                    onChange={setPhotos}
+                    ownerId={supabaseUser?.id}
+                    maxPhotos={8}
+                    onBusyChange={setIsUploadingPhotos}
+                  />
+                </div>
+
+                <p className="mt-2 text-[11px] text-stone-500">
+                  At least one photo is required. The cover photo appears on search results.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1">
+                  Or start with a demonstration photo
+                </label>
+                <p className="text-[11px] text-stone-500">
+                  For testing only. You can remove these before submitting.
+                </p>
+                <div className="mt-2 grid grid-cols-3 gap-3">
+                  {[
+                    { url: '/images/kigali-loft.png', label: 'Kigali Loft / Urban' },
+                    { url: '/images/musanze-lodge.png', label: 'Musanze Mountain Lodge' },
+                    { url: '/images/hero-rwanda.png', label: 'Lake Kivu Shore' },
+                  ].map((p) => {
+                    const selected = photos.some((photo) => photo.image_url === p.url);
+                    const limitReached = photos.length >= 8;
+
+                    return (
+                      <button
+                        type="button"
+                        key={p.url}
+                        onClick={() => addSamplePhoto(p.url, p.label)}
+                        disabled={selected || limitReached}
+                        className={`group overflow-hidden rounded-2xl border-2 bg-white text-left transition-all ${
+                          selected
+                            ? 'border-emerald-500 ring-2 ring-emerald-500/20'
+                            : 'border-stone-200 hover:border-[#b94726] disabled:cursor-not-allowed disabled:opacity-50'
+                        }`}
+                      >
+                        <div className="relative aspect-[4/3] bg-stone-100">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={p.url} alt={p.label} className="h-full w-full object-cover" />
+                          <span
+                            className={`absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold shadow-sm ${
+                              selected
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-white/90 text-stone-700 group-hover:bg-[#b94726] group-hover:text-white'
+                            }`}
+                          >
+                            {selected ? <Check className="h-3 w-3" /> : <ImagePlus className="h-3 w-3" />}
+                          </span>
+                        </div>
+                        <div className="p-2 text-center text-[11px] font-semibold text-stone-800">
+                          {p.label}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-stone-600">
-                  Document Type
+                  Verification Document Type
                 </label>
                 <select
                   value={documentType}
@@ -661,38 +796,9 @@ export default function BecomeAHostPage() {
                   <option value="rdb_tourism_license">RDB Tourism Operating License</option>
                   <option value="title_deed_or_lease">Land Title Deed (UPI) or Lease Agreement</option>
                 </select>
-              </div>
-
-              {/* Photo selection */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-2">
-                  Select Primary Demonstration Photography
-                </label>
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { url: '/images/kigali-loft.png', label: 'Kigali Loft / Urban' },
-                    { url: '/images/musanze-lodge.png', label: 'Musanze Mountain Lodge' },
-                    { url: '/images/hero-rwanda.png', label: 'Lake Kivu Shore' },
-                  ].map((p) => (
-                    <div
-                      key={p.url}
-                      onClick={() => setSelectedPhotoUrl(p.url)}
-                      className={`cursor-pointer overflow-hidden rounded-2xl border-2 transition-all ${
-                        selectedPhotoUrl === p.url
-                          ? 'border-[#b94726] ring-2 ring-[#b94726]/30'
-                          : 'border-stone-200 opacity-70 hover:opacity-100'
-                      }`}
-                    >
-                      <div className="aspect-[4/3] bg-stone-100">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={p.url} alt={p.label} className="h-full w-full object-cover" />
-                      </div>
-                      <div className="p-2 text-[11px] font-semibold text-stone-800 text-center">
-                        {p.label}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <p className="mt-1 text-[11px] text-stone-500">
+                  Select the document you will provide to the Memento verification team.
+                </p>
               </div>
 
               <div className="rounded-2xl bg-amber-50 p-4 border border-amber-200 text-xs text-amber-900 flex items-start gap-3">
@@ -706,7 +812,7 @@ export default function BecomeAHostPage() {
               </div>
             </div>
 
-            <div className="flex justify-between pt-4">
+            <div className="flex items-center justify-between gap-3 pt-4">
               <button
                 type="button"
                 onClick={() => setCurrentStep(3)}
@@ -715,14 +821,23 @@ export default function BecomeAHostPage() {
                 <ArrowLeft className="h-4 w-4" />
                 <span>Back</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setCurrentStep(5)}
-                className="flex items-center gap-2 rounded-2xl bg-[#b94726] px-6 py-2.5 text-xs font-bold text-white shadow-md hover:bg-[#9e3b1e]"
-              >
-                <span>Review Application</span>
-                <ArrowRight className="h-4 w-4" />
-              </button>
+
+              <div className="flex items-center gap-3">
+                {photos.length === 0 && (
+                  <span className="text-[11px] font-medium text-stone-400">
+                    Add at least one photo to continue
+                  </span>
+                )}
+                <button
+                  type="button"
+                  disabled={photos.length === 0 || isUploadingPhotos}
+                  onClick={() => setCurrentStep(5)}
+                  className="flex items-center gap-2 rounded-2xl bg-[#b94726] px-6 py-2.5 text-xs font-bold text-white shadow-md hover:bg-[#9e3b1e] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <span>{isUploadingPhotos ? 'Uploading photos…' : 'Review Application'}</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -734,11 +849,18 @@ export default function BecomeAHostPage() {
               Step 5: Final Review & Submission
             </h2>
 
+            {submitError && (
+              <div className="flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{submitError}</span>
+              </div>
+            )}
+
             <div className="rounded-2xl bg-stone-50 p-5 space-y-4 text-xs">
               <div className="flex justify-between border-b border-stone-200 pb-2">
                 <span className="font-bold text-stone-500 uppercase">Host</span>
                 <span className="font-semibold text-stone-900">
-                  {hostFullName} ({hostType})
+                  {hostType === 'business' && businessName ? businessName : hostFullName} ({hostType})
                 </span>
               </div>
               <div className="flex justify-between border-b border-stone-200 pb-2">
@@ -755,6 +877,12 @@ export default function BecomeAHostPage() {
                 <span className="font-bold text-stone-500 uppercase">Bookable Units</span>
                 <span className="font-bold text-[#b94726]">{units.length} Unit(s) configured</span>
               </div>
+              <div className="flex justify-between border-b border-stone-200 pb-2">
+                <span className="font-bold text-stone-500 uppercase">Property Photos</span>
+                <span className="font-bold text-stone-900">
+                  {photos.length} photo{photos.length === 1 ? '' : 's'} uploaded
+                </span>
+              </div>
               <div className="flex justify-between">
                 <span className="font-bold text-stone-500 uppercase">Initial Status</span>
                 <span className="rounded bg-amber-100 px-2 py-0.5 font-bold text-amber-800">
@@ -762,6 +890,39 @@ export default function BecomeAHostPage() {
                 </span>
               </div>
             </div>
+
+            {photos.length > 0 && (
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                  Photo Preview
+                </span>
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {photos.slice(0, 4).map((photo, index) => (
+                    <div
+                      key={photo.id}
+                      className="relative aspect-[4/3] overflow-hidden rounded-xl border border-stone-200 bg-stone-100"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photo.image_url}
+                        alt={photo.caption || `Property photo ${index + 1}`}
+                        className="h-full w-full object-cover"
+                      />
+                      {photo.is_primary && (
+                        <span className="absolute left-1 top-1 rounded-full bg-white/95 px-1.5 py-0.5 text-[8px] font-bold uppercase text-stone-900 shadow-sm">
+                          Cover
+                        </span>
+                      )}
+                      {index === 3 && photos.length > 4 && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-sm font-bold text-white">
+                          +{photos.length - 4}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-between pt-4">
               <button
@@ -774,11 +935,17 @@ export default function BecomeAHostPage() {
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting}
-                className="flex items-center gap-2 rounded-2xl bg-[#b94726] px-8 py-3 text-sm font-bold text-white shadow-lg hover:bg-[#9e3b1e] active:scale-95 disabled:opacity-50"
+                disabled={isSubmitting || isUploadingPhotos || photos.length === 0}
+                className="flex items-center gap-2 rounded-2xl bg-[#b94726] px-8 py-3 text-sm font-bold text-white shadow-lg hover:bg-[#9e3b1e] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Sparkles className="h-4 w-4" />
-                <span>{isSubmitting ? 'Submitting...' : 'Submit Host Application'}</span>
+                <span>
+                  {isUploadingPhotos
+                    ? 'Uploading photos…'
+                    : isSubmitting
+                    ? 'Submitting...'
+                    : 'Submit Host Application'}
+                </span>
               </button>
             </div>
           </form>

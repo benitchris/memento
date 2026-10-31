@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MockStore } from '@/lib/data/mock-store';
 import { useMemento } from '@/lib/context/memento-context';
+import { PropertyImage } from '@/lib/types';
+import { PropertyPhotoManager } from '@/components/property-photo-manager';
 import { formatRWF, formatUSD, formatDate } from '@/lib/utils/format';
 import {
   Building,
@@ -20,6 +22,8 @@ import {
   Eye,
   Check,
   Send,
+  Camera,
+  X,
 } from 'lucide-react';
 
 export default function HostDashboardPage() {
@@ -27,6 +31,24 @@ export default function HostDashboardPage() {
   const [activeTab, setActiveTab] = useState<'bookings' | 'properties' | 'calendar' | 'reviews'>('bookings');
   const [responseTexts, setResponseTexts] = useState<Record<string, string>>({});
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+  const [photoEditorId, setPhotoEditorId] = useState<string | null>(null);
+  const [submittedId, setSubmittedId] = useState<string | null>(null);
+  const [, bumpPhotoVersion] = useState(0);
+
+  // A fresh listing submission lands here with ?submitted=<id>. Open the
+  // property tab and confirm the submission, then clean the URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const submitted = params.get('submitted');
+    if (!submitted) return;
+
+    setSubmittedId(submitted);
+    setActiveTab('properties');
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('submitted');
+    window.history.replaceState({}, '', url.pathname + url.search);
+  }, []);
 
   // Admins can audit any listing; hosts only ever see properties they own.
   const isAdmin = currentUser.role === 'admin';
@@ -36,6 +58,15 @@ export default function HostDashboardPage() {
     (p) => isAdmin || p.host_id === currentUser.id
   );
   const hasListings = hostProperties.length > 0;
+  const editingProperty = photoEditorId
+    ? hostProperties.find((property) => property.id === photoEditorId)
+    : undefined;
+
+  const handlePropertyPhotosChange = (images: PropertyImage[]) => {
+    if (!photoEditorId) return;
+    MockStore.updatePropertyImages(photoEditorId, images);
+    bumpPhotoVersion((version) => version + 1);
+  };
 
   // Fetch bookings for this host's properties
   const hostBookings = state.bookings.filter((b) =>
@@ -91,6 +122,27 @@ export default function HostDashboardPage() {
             <Plus className="h-4 w-4" />
             <span>Create a listing</span>
           </Link>
+        </div>
+      )}
+
+      {/* Submission confirmation */}
+      {submittedId && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900 sm:flex-row sm:items-start">
+          <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+          <div className="flex-1">
+            <span className="text-sm font-bold">Listing submitted for review</span>
+            <p className="mt-1 text-xs text-emerald-800">
+              Your property and photos are with the Memento verification team. You can keep
+              editing the photos below while the listing is under review.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSubmittedId(null)}
+            className="self-start rounded-xl border border-emerald-300 px-3 py-1.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -338,35 +390,64 @@ export default function HostDashboardPage() {
                 key={prop.id}
                 className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm space-y-4"
               >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-stone-700">
-                        {prop.property_type.replace('_', ' ')}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                          prop.status === 'approved'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {prop.status}
-                      </span>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="h-20 w-24 shrink-0 overflow-hidden rounded-2xl border border-stone-200 bg-stone-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={
+                          prop.images.find((image) => image.is_primary)?.image_url ||
+                          prop.images[0]?.image_url ||
+                          '/images/kigali-loft.png'
+                        }
+                        alt={prop.title}
+                        className="h-full w-full object-cover"
+                      />
                     </div>
-                    <h3 className="mt-2 text-base font-bold text-stone-900">{prop.title}</h3>
-                    <p className="text-xs text-stone-500">
-                      {prop.city}, {prop.province}
-                    </p>
+
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-stone-700">
+                          {prop.property_type.replace('_', ' ')}
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                            prop.status === 'approved'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {prop.status}
+                        </span>
+                      </div>
+                      <h3 className="mt-2 truncate text-base font-bold text-stone-900">{prop.title}</h3>
+                      <p className="text-xs text-stone-500">
+                        {prop.city}, {prop.province}
+                      </p>
+                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
+                        {prop.images.length} photo{prop.images.length === 1 ? '' : 's'} ·{' '}
+                        {prop.units?.length || 0} unit{(prop.units?.length || 0) === 1 ? '' : 's'}
+                      </p>
+                    </div>
                   </div>
 
-                  <Link
-                    href={`/properties/${prop.id}`}
-                    className="flex items-center gap-1 rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    <span>Preview</span>
-                  </Link>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPhotoEditorId(prop.id)}
+                      className="flex items-center gap-1 rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-semibold text-stone-700 hover:border-[#b94726] hover:text-[#b94726]"
+                    >
+                      <Camera className="h-3.5 w-3.5" />
+                      <span>Photos</span>
+                    </button>
+                    <Link
+                      href={`/properties/${prop.id}`}
+                      className="flex items-center gap-1 rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      <span>Preview</span>
+                    </Link>
+                  </div>
                 </div>
 
                 {/* Units List */}
@@ -464,6 +545,53 @@ export default function HostDashboardPage() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* Photo manager modal */}
+      {editingProperty && (
+        <div className="fixed inset-0 z-[160] flex items-start justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
+          <div className="my-6 w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-stone-200 px-6 py-5">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#b94726]">
+                  Property Photos
+                </span>
+                <h3 className="mt-1 text-lg font-bold text-stone-900">{editingProperty.title}</h3>
+                <p className="mt-1 text-[11px] text-stone-500">
+                  Add up to 8 photos. The cover photo appears on search results and your listing page.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPhotoEditorId(null)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-100 text-stone-600 hover:bg-stone-200"
+                aria-label="Close photo manager"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[68vh] overflow-y-auto px-6 py-5">
+              <PropertyPhotoManager
+                images={editingProperty.images || []}
+                onChange={handlePropertyPhotosChange}
+                ownerId={currentUser.id}
+                maxPhotos={8}
+                compact
+              />
+            </div>
+
+            <div className="flex justify-end border-t border-stone-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setPhotoEditorId(null)}
+                className="rounded-xl bg-stone-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-stone-800"
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
