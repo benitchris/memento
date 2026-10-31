@@ -30,10 +30,14 @@ export function OnboardingModal() {
     const supabase = createClient();
     supabase
       .from('profiles')
-      .select('onboarding_complete, full_name')
+      .select('onboarding_complete, full_name, role')
       .eq('id', supabaseUser.id)
       .single()
       .then(({ data }) => {
+        // Administrators are provisioned by the platform team — never ask them
+        // to pick a role, and never let this modal overwrite their access.
+        if (data?.role === 'admin') return;
+
         if (!data?.onboarding_complete) {
           // Pre-fill name from OAuth metadata
           const metaName =
@@ -135,7 +139,7 @@ export function OnboardingModal() {
                   <div>
                     <h3 className="text-lg font-bold text-stone-900">How will you use Memento?</h3>
                     <p className="mt-1 text-xs text-stone-500">
-                      You can always switch between traveller and host mode later.
+                      You can start hosting later from your account.
                     </p>
                   </div>
 
@@ -191,7 +195,7 @@ export function OnboardingModal() {
 
                   <p className="text-center text-[11px] text-stone-400 flex items-center justify-center gap-1">
                     <Sparkles className="h-3 w-3" />
-                    One account works for both roles — you can switch anytime
+                    One account for travelling and hosting — upgrade to host anytime
                   </p>
 
                   {error && (

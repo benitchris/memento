@@ -4,12 +4,12 @@ import { createClient } from '@/lib/supabase/server';
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const requestedNext = searchParams.get('next') ?? '/dashboard';
+  const requestedNextRaw = searchParams.get('next');
   // Only allow same-site relative paths to prevent open redirects.
-  const next =
-    requestedNext.startsWith('/') && !requestedNext.startsWith('//')
-      ? requestedNext
-      : '/dashboard';
+  const requestedNext =
+    requestedNextRaw && requestedNextRaw.startsWith('/') && !requestedNextRaw.startsWith('//')
+      ? requestedNextRaw
+      : null;
 
   if (code) {
     try {
@@ -40,14 +40,18 @@ export async function GET(request: Request) {
           });
         }
 
+        // Explicit ?next= wins; otherwise administrators land in the admin console.
+        const role = existingProfile?.role ?? 'traveller';
+        const destination = requestedNext ?? (role === 'admin' ? '/admin' : '/dashboard');
+
         const forwardedHost = request.headers.get('x-forwarded-host');
         const isLocalEnv = process.env.NODE_ENV === 'development';
         if (isLocalEnv) {
-          return NextResponse.redirect(`${origin}${next}`);
+          return NextResponse.redirect(`${origin}${destination}`);
         } else if (forwardedHost) {
-          return NextResponse.redirect(`https://${forwardedHost}${next}`);
+          return NextResponse.redirect(`https://${forwardedHost}${destination}`);
         } else {
-          return NextResponse.redirect(`${origin}${next}`);
+          return NextResponse.redirect(`${origin}${destination}`);
         }
       }
     } catch (err) {

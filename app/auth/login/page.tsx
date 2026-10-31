@@ -17,11 +17,13 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const getNextPath = () => {
-    if (typeof window === 'undefined') return '/dashboard';
+  const getRequestedNext = () => {
+    if (typeof window === 'undefined') return null;
     const next = new URLSearchParams(window.location.search).get('next');
-    return next && next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard';
+    return next && next.startsWith('/') && !next.startsWith('//') ? next : null;
   };
+
+  const getNextPath = () => getRequestedNext() ?? '/dashboard';
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +45,18 @@ export default function LoginPage() {
         }
 
         if (data.user) {
-          router.push(getNextPath());
+          // Honour an explicit ?next= request (e.g. a protected page redirect),
+          // otherwise send administrators straight to their control center.
+          let destination = getRequestedNext();
+          if (!destination) {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('role')
+              .eq('id', data.user.id)
+              .maybeSingle();
+            destination = profile?.role === 'admin' ? '/admin' : '/dashboard';
+          }
+          router.push(destination);
           router.refresh();
           return;
         }
@@ -67,12 +80,14 @@ export default function LoginPage() {
     try {
       if (isSupabaseConfigured()) {
         const supabase = createClient();
+        const callbackUrl = new URL('/auth/callback', window.location.origin);
+        const requestedNext = getRequestedNext();
+        if (requestedNext) callbackUrl.searchParams.set('next', requestedNext);
+
         const { error } = await supabase.auth.signInWithOAuth({
           provider,
           options: {
-            redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(
-              getNextPath()
-            )}`,
+            redirectTo: callbackUrl.toString(),
           },
         });
 
