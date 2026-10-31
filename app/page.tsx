@@ -114,26 +114,20 @@ export default function HomePage() {
         />
       </section>
 
-      {/* DEMO NOTICE BANNER (Prominently fulfilling prompt requirements) */}
+      {/* DEMO NOTICE BANNER */}
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-          <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200 text-amber-900 font-bold">
-              ℹ
-            </span>
-            <div>
-              <p className="font-bold">Clearly Labelled Demonstration Data Environment</p>
-              <p className="text-amber-800 text-[11px]">
-                These listings demonstrate the universal accommodation engine (from single private bedrooms to whole hotel room inventories). Try searching, selecting units, and placing a booking!
-              </p>
-            </div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-900 flex items-start gap-3 shadow-sm">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200 text-amber-900 font-bold">
+            ℹ
+          </span>
+          <div>
+            <p className="font-bold">Demonstration listings</p>
+            <p className="text-amber-800 text-[11px]">
+              These example stays demonstrate the universal accommodation engine — from a single
+              private bedroom to whole hotel room inventories. Search, compare units and place a
+              test booking at any time.
+            </p>
           </div>
-          <button
-            onClick={() => MockStore.resetToDemo()}
-            className="rounded-xl border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors"
-          >
-            Reset Demo State
-          </button>
         </div>
       </div>
 

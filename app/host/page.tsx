@@ -18,25 +18,24 @@ import {
   MessageSquare,
   ShieldCheck,
   Eye,
-  AlertCircle,
   Check,
   Send,
 } from 'lucide-react';
 
 export default function HostDashboardPage() {
-  const { currentUser, currency, switchRole } = useMemento();
+  const { currentUser, currency } = useMemento();
   const [activeTab, setActiveTab] = useState<'bookings' | 'properties' | 'calendar' | 'reviews'>('bookings');
   const [responseTexts, setResponseTexts] = useState<Record<string, string>>({});
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
 
-  // If user is not yet in host role, provide friendly 1-click switch
-  const isHost = currentUser.role === 'host' || currentUser.role === 'admin';
+  // Admins can audit any listing; hosts only ever see properties they own.
+  const isAdmin = currentUser.role === 'admin';
 
   const state = MockStore.getState();
-  // Fetch properties owned by host
   const hostProperties = state.properties.filter(
-    (p) => p.host_id === currentUser.id || isHost
+    (p) => isAdmin || p.host_id === currentUser.id
   );
+  const hasListings = hostProperties.length > 0;
 
   // Fetch bookings for this host's properties
   const hostBookings = state.bookings.filter((b) =>
@@ -75,21 +74,23 @@ export default function HostDashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-8">
-      {/* Role Banner if visiting as Traveller */}
-      {!isHost && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900">
+      {/* Empty state for guests who have not listed a property yet */}
+      {!hasListings && (
+        <div className="rounded-2xl border border-stone-200 bg-white p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <span className="font-bold">Viewing in Traveller Mode</span>
-            <p className="text-amber-800">
-              You are currently viewing as David Karemera. Switch to Host mode to manage properties and approve reservations.
+            <span className="font-bold text-stone-900 text-sm">You don&apos;t have a listing yet</span>
+            <p className="mt-1 text-xs text-stone-500 max-w-xl">
+              Submit your first accommodation for verification. It will appear here once the
+              Memento team has reviewed it.
             </p>
           </div>
-          <button
-            onClick={() => switchRole('host')}
-            className="rounded-xl bg-[#b94726] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#9e3b1e]"
+          <Link
+            href="/become-a-host"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#b94726] px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#9e3b1e]"
           >
-            Switch to Host (Jean-Paul)
-          </button>
+            <Plus className="h-4 w-4" />
+            <span>Create a listing</span>
+          </Link>
         </div>
       )}
 

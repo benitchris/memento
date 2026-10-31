@@ -91,7 +91,6 @@ export function Footer() {
             <ul className="mt-4 space-y-2.5 text-sm text-stone-400">
               <li><Link href="/become-a-host" className="hover:text-white transition-colors">Become a Host</Link></li>
               <li><Link href="/host" className="hover:text-white transition-colors">Host Dashboard</Link></li>
-              <li><Link href="/admin" className="hover:text-white transition-colors">Marketplace Admin</Link></li>
               <li><Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link></li>
               <li><Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link></li>
               <li><span className="text-stone-500">RDB Tourism Compliant</span></li>

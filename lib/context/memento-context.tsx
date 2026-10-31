@@ -14,7 +14,6 @@ interface MementoContextType {
   isAuthenticated: boolean;
   isLoadingAuth: boolean;
   signOut: () => Promise<void>;
-  switchRole: (role: UserRole) => void;
   notifications: InAppNotification[];
   markNotificationRead: (id: string) => void;
   favourites: string[];
@@ -31,7 +30,6 @@ const defaultContext: MementoContextType = {
   isAuthenticated: false,
   isLoadingAuth: true,
   signOut: async () => {},
-  switchRole: () => {},
   notifications: [],
   markNotificationRead: () => {},
   favourites: [],
@@ -159,21 +157,6 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
     setCurrentUser(DEMO_USERS.traveller);
   }, []);
 
-  const switchRole = useCallback(
-    (role: UserRole) => {
-      if (isSupabaseConfigured() && isAuthenticated) {
-        // In real mode — optimistically update local state only (no DB write for now)
-        setCurrentUser((prev) => ({ ...prev, role }));
-      } else {
-        MockStore.setCurrentUserRole(role);
-        const user = MockStore.getCurrentUser();
-        setCurrentUser(user);
-        setNotifications(MockStore.getNotifications(user.id));
-      }
-    },
-    [isAuthenticated]
-  );
-
   const markNotificationRead = useCallback((id: string) => {
     MockStore.markNotificationRead(id);
   }, []);
@@ -208,7 +191,6 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated,
         isLoadingAuth,
         signOut,
-        switchRole,
         notifications,
         markNotificationRead,
         favourites,

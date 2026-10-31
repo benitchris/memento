@@ -5,19 +5,23 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/logo';
 import { useMemento } from '@/lib/context/memento-context';
-import { UserRole } from '@/lib/types';
 import { isSupabaseConfigured } from '@/lib/data/service';
 import { createClient } from '@/lib/supabase/client';
-import { Lock, Mail, ArrowRight, Sparkles, AlertCircle } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { switchRole } = useMemento();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const getNextPath = () => {
+    if (typeof window === 'undefined') return '/dashboard';
+    const next = new URLSearchParams(window.location.search).get('next');
+    return next && next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard';
+  };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,15 +43,15 @@ export default function LoginPage() {
         }
 
         if (data.user) {
-          router.push('/dashboard');
+          router.push(getNextPath());
+          router.refresh();
           return;
         }
       } else {
-        // Instant Demo fallback
+        // Local preview without Supabase credentials
         setTimeout(() => {
           setIsSubmitting(false);
-          switchRole('traveller');
-          router.push('/dashboard');
+          router.push(getNextPath());
         }, 500);
       }
     } catch (err: any) {
@@ -66,7 +70,9 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signInWithOAuth({
           provider,
           options: {
-            redirectTo: `${window.location.origin}/auth/callback`,
+            redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(
+              getNextPath()
+            )}`,
           },
         });
 
@@ -75,24 +81,16 @@ export default function LoginPage() {
           setIsSubmitting(false);
         }
       } else {
-        // Fallback demo state
+        // Local preview without Supabase credentials
         setTimeout(() => {
           setIsSubmitting(false);
-          switchRole('traveller');
-          router.push('/dashboard');
+          router.push(getNextPath());
         }, 500);
       }
     } catch (err: any) {
       setErrorMsg(err?.message || `Failed to sign in with ${provider}`);
       setIsSubmitting(false);
     }
-  };
-
-  const handleQuickDemoLogin = (role: UserRole) => {
-    switchRole(role);
-    if (role === 'host') router.push('/host');
-    else if (role === 'admin') router.push('/admin');
-    else router.push('/dashboard');
   };
 
   return (
@@ -115,37 +113,6 @@ export default function LoginPage() {
             <span>{errorMsg}</span>
           </div>
         )}
-
-        {/* Quick Demo Logins for Reviewer/Tester */}
-        <div className="rounded-2xl bg-orange-50/80 p-3.5 border border-orange-100 text-xs">
-          <div className="flex items-center gap-1.5 font-bold text-[#b94726]">
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Instant Demo Sign-In (1-Click)</span>
-          </div>
-          <div className="mt-2.5 grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickDemoLogin('traveller')}
-              className="rounded-xl bg-white border border-stone-200 p-2 text-center text-[11px] font-bold text-stone-800 hover:border-[#b94726] shadow-sm transition-colors"
-            >
-              Traveller
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickDemoLogin('host')}
-              className="rounded-xl bg-white border border-stone-200 p-2 text-center text-[11px] font-bold text-[#b94726] hover:border-[#b94726] shadow-sm transition-colors"
-            >
-              Host
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickDemoLogin('admin')}
-              className="rounded-xl bg-white border border-stone-200 p-2 text-center text-[11px] font-bold text-[#1f4e3d] hover:border-[#1f4e3d] shadow-sm transition-colors"
-            >
-              Admin
-            </button>
-          </div>
-        </div>
 
         {/* OAuth Buttons */}
         <div className="space-y-2.5">

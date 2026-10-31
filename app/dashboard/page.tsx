@@ -22,9 +22,15 @@ import {
   X,
 } from 'lucide-react';
 
-export default function TravellerDashboardPage() {
+type DashboardTab = 'upcoming' | 'pending' | 'past' | 'favourites' | 'profile';
+
+export default function TravellerDashboardPage({
+  initialTab = 'upcoming',
+}: {
+  initialTab?: DashboardTab;
+}) {
   const { currentUser, favourites, currency } = useMemento();
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'pending' | 'past' | 'favourites' | 'profile'>('upcoming');
+  const [activeTab, setActiveTab] = useState<DashboardTab>(initialTab);
 
   // Review Modal State
   const [reviewBooking, setReviewBooking] = useState<Booking | null>(null);

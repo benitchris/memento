@@ -6,7 +6,9 @@ import { Footer } from '@/components/footer';
 import { OnboardingModal } from '@/components/onboarding-modal';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('http://localhost:3000'),
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || 'https://memento-o176.vercel.app'
+  ),
   title: 'Memento — Rwanda’s Accommodation Booking Marketplace',
   description:
     'Discover, compare and book accommodation throughout Rwanda. From private rooms to luxury retreats, find your place in Rwanda.',

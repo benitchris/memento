@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { MockStore } from '@/lib/data/mock-store';
 import { useMemento } from '@/lib/context/memento-context';
+import { isSupabaseConfigured } from '@/lib/data/service';
+import { createClient } from '@/lib/supabase/client';
 import { PropertyType, BookableUnit, Property } from '@/lib/types';
 import { formatRWF } from '@/lib/utils/format';
 import {
@@ -23,7 +25,7 @@ import {
 
 export default function BecomeAHostPage() {
   const router = useRouter();
-  const { switchRole, currentUser } = useMemento();
+  const { currentUser, supabaseUser, refresh } = useMemento();
 
   // Wizard Steps: 1: Host Profile, 2: Property Basics, 3: Bookable Units, 4: Verification & Photos, 5: Review & Submit
   const [currentStep, setCurrentStep] = useState(1);
@@ -107,7 +109,7 @@ export default function BecomeAHostPage() {
     setUnits(updated);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
@@ -140,11 +142,17 @@ export default function BecomeAHostPage() {
         units
       );
 
-      // Auto switch active role to Host
-      switchRole('host');
+      // A guest account becomes a host once their first listing is submitted.
+      if (isSupabaseConfigured() && supabaseUser) {
+        const supabase = createClient();
+        await supabase
+          .from('profiles')
+          .update({ role: 'host' })
+          .eq('id', supabaseUser.id);
+        await refresh();
+      }
 
-      // Route to host dashboard
-      router.push('/host');
+      router.push(`/host?submitted=${newProp.id}`);
     } catch (err) {
       console.error(err);
     } finally {

@@ -134,11 +134,6 @@ export const MockStore = {
     persist();
   },
 
-  setCurrentUserRole(role: 'traveller' | 'host' | 'admin') {
-    memoryState.currentUser = DEMO_USERS[role];
-    persist();
-  },
-
   getCurrentUser(): UserProfile {
     return memoryState.currentUser;
   },
@@ -211,8 +206,7 @@ export const MockStore = {
     }
 
     // Sorting
-    if (filters.sortBy) {
-      if (filters.sortBy === 'price_asc') {
+    if (filters.sortBy) {      if (filters.sortBy === 'price_asc') {
         result.sort((a, b) => {
           const aMin = Math.min(...(a.units?.map((u) => u.base_price_rwf) || [0]));
           const bMin = Math.min(...(b.units?.map((u) => u.base_price_rwf) || [0]));

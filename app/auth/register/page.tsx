@@ -4,14 +4,12 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/logo';
-import { useMemento } from '@/lib/context/memento-context';
 import { isSupabaseConfigured } from '@/lib/data/service';
 import { createClient } from '@/lib/supabase/client';
 import { Lock, Mail, User, Phone, ArrowRight, ShieldCheck, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { switchRole } = useMemento();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -56,10 +54,9 @@ export default function RegisterPage() {
           setIsSubmitting(false);
         }
       } else {
-        // Fallback demo state
+        // Local preview without Supabase credentials
         setTimeout(() => {
           setIsSubmitting(false);
-          switchRole('traveller');
           router.push('/dashboard');
         }, 500);
       }

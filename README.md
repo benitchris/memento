@@ -73,19 +73,38 @@ When connecting your Supabase project:
    cp .env.example .env.local
    ```
 2. Populate `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` from your Supabase Dashboard.
-3. Apply the database schema and stored procedures:
-   - Run the contents of `supabase/migrations/001_initial_schema.sql` in the **Supabase SQL Editor**.
+3. Apply the database schema and stored procedures in order:
+   - `supabase/migrations/001_initial_schema.sql` — schema, RLS and booking functions.
+   - `supabase/migrations/002_onboarding_column.sql` — adds `profiles.onboarding_complete`.
+   - `supabase/migrations/003_profile_role_guard.sql` — blocks self-promotion to admin.
 4. Seed authentic Rwandan destinations and amenities:
    - Run `supabase/seed.sql` in the **Supabase SQL Editor**.
+5. Grant the first administrator manually in the SQL Editor:
+   ```sql
+   UPDATE public.profiles SET role = 'admin' WHERE email = 'you@example.com';
+   ```
 
 ---
 
-## 5. Instant Persona Switcher (For Testing & Review)
+## 5. Authentication, Onboarding & Roles
 
-Memento includes an instant persona switcher pill in the navigation bar:
-- **Traveller Persona (`David Karemera`):** Search, compare, select bookable units, submit bookings, view booking vouchers, and submit verified reviews.
-- **Host Persona (`Jean-Paul Mugabo`):** Host dashboard, approve or decline incoming booking requests, manage properties and units, review earnings.
-- **Admin Persona (`Diane Uwimana`):** Marketplace control center, approve/reject pending host listings, feature or suspend accommodations, configure platform commission rates (default 8%).
+Memento uses one account for travelling and hosting.
+
+- **Sign-in:** Google, Apple and email/password through Supabase Auth. OAuth returns to
+  `/auth/callback`, which creates the profile when needed and preserves the intended
+  destination with a validated `next` parameter.
+- **New users:** after their first sign-in they choose a display name and primary role
+  (Traveller or Host). This is stored on `profiles` and the modal never appears again.
+- **Hosts:** submitting a listing upgrades the account to the Host role, which unlocks the
+  Host Dashboard. Travellers can still book and keep favourites.
+- **Administrators:** the Admin Portal is checked server-side on every request against
+  `profiles.role`. It is never unlocked by a client-side toggle, and migration 003 prevents
+  users from promoting themselves to admin.
+- **Protected pages:** `/dashboard`, `/host` and `/become-a-host` require a session when
+  Supabase is configured and return visitors to the page they originally requested.
+
+There are no demo persona shortcuts in production. In local preview without Supabase
+credentials, the interface falls back to the bundled demonstration data.
 
 ---
 
@@ -108,7 +127,8 @@ Memento includes an instant persona switcher pill in the navigation bar:
 │   ├── sitemap.ts              # Dynamic SEO sitemap
 │   └── robots.ts               # Search engine crawler policies
 ├── components/
-│   ├── navbar.tsx              # Navigation bar with role switcher & notifications
+│   ├── navbar.tsx              # Auth-aware navigation, notifications & profile menu
+│   ├── auth-guard.tsx          # Session guard for account-only routes
 │   ├── footer.tsx              # Footer with Rwanda regions & legal notices
 │   ├── logo.tsx                # Original Memento brand emblem & typography
 │   ├── property-card.tsx       # Listing card with multi-unit badges & favourites
@@ -124,6 +144,8 @@ Memento includes an instant persona switcher pill in the navigation bar:
 │   └── supabase/               # Supabase browser & SSR server clients
 ├── supabase/
 │   ├── migrations/001_initial_schema.sql # Complete PostgreSQL schema, RLS & functions
+│   ├── migrations/002_onboarding_column.sql # First-run onboarding flag
+│   ├── migrations/003_profile_role_guard.sql # Prevents self-promotion to admin
 │   └── seed.sql                # Rwandan destinations & amenities seed
 └── public/
     └── images/                 # High-resolution accommodation photography
