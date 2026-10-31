@@ -3,6 +3,7 @@ import './globals.css';
 import { MementoProvider } from '@/lib/context/memento-context';
 import { Navbar } from '@/components/navbar';
 import { Footer } from '@/components/footer';
+import { OnboardingModal } from '@/components/onboarding-modal';
 
 export const metadata: Metadata = {
   metadataBase: new URL('http://localhost:3000'),
@@ -47,6 +48,7 @@ export default function RootLayout({
       <body className="min-h-screen flex flex-col bg-[#faf8f5] text-[#18191b] antialiased">
         <MementoProvider>
           <Navbar />
+          <OnboardingModal />
           <main className="flex-1">{children}</main>
           <Footer />
         </MementoProvider>

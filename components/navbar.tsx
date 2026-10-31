@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Logo } from './logo';
 import { useMemento } from '@/lib/context/memento-context';
 import {
@@ -18,13 +18,18 @@ import {
   Check,
   ChevronDown,
   Sparkles,
+  LogOut,
+  LogIn,
 } from 'lucide-react';
 import { UserRole } from '@/lib/types';
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const {
     currentUser,
+    isAuthenticated,
+    signOut,
     switchRole,
     notifications,
     markNotificationRead,
@@ -272,13 +277,26 @@ export function Navbar() {
 
                   <div className="my-1 border-t border-stone-100" />
 
-                  <Link
-                    href="/auth/login"
-                    className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-stone-700 hover:bg-stone-50 transition-colors"
-                  >
-                    <User className="h-4 w-4 text-stone-400" />
-                    <span>Account Settings / Login</span>
-                  </Link>
+                  {isAuthenticated ? (
+                    <button
+                      onClick={async () => {
+                        await signOut();
+                        router.push('/');
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 transition-colors"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      <span>Sign out</span>
+                    </button>
+                  ) : (
+                    <Link
+                      href="/auth/login"
+                      className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-stone-700 hover:bg-stone-50 transition-colors"
+                    >
+                      <LogIn className="h-4 w-4 text-stone-400" />
+                      <span>Sign in / Register</span>
+                    </Link>
+                  )}
                 </div>
               </div>
             )}
