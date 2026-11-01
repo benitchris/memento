@@ -3,9 +3,15 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Property, BookableUnit } from '@/lib/types';
-import { calculateNights, formatRWF, formatUSD } from '@/lib/utils/format';
+import { calculateNights, formatRWF, formatUSD, formatDate } from '@/lib/utils/format';
 import { useMemento } from '@/lib/context/memento-context';
 import { MockStore } from '@/lib/data/mock-store';
+import {
+  bookingToLedgerEntry,
+  enquiryToLedgerEntry,
+  recordLedgerEntry,
+  toDialablePhone,
+} from '@/lib/data/booking-ledger';
 import {
   Calendar,
   Users,
@@ -14,6 +20,9 @@ import {
   AlertTriangle,
   Sparkles,
   Lock,
+  MessageCircle,
+  Phone,
+  Loader2,
 } from 'lucide-react';
 
 interface BookingWidgetProps {
@@ -23,7 +32,7 @@ interface BookingWidgetProps {
 
 export function BookingWidget({ property, selectedUnit }: BookingWidgetProps) {
   const router = useRouter();
-  const { currency } = useMemento();
+  const { currency, currentUser, isAuthenticated } = useMemento();
 
   // Default to tomorrow and 3 nights stay
   const today = new Date();
@@ -42,6 +51,11 @@ export function BookingWidget({ property, selectedUnit }: BookingWidgetProps) {
   const [paymentMethod, setPaymentMethod] = useState<'pay_at_property' | 'momo_mtn' | 'momo_airtel'>('pay_at_property');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [contacting, setContacting] = useState<'whatsapp' | 'call' | null>(null);
+  const [contactFeedback, setContactFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const nights = calculateNights(checkIn, checkOut);
 
@@ -62,6 +76,7 @@ export function BookingWidget({ property, selectedUnit }: BookingWidgetProps) {
   const cleaningFee = selectedUnit.cleaning_fee_rwf;
   const serviceFee = Math.round((subtotal - discount) * 0.08); // 8% platform fee
   const totalPrice = subtotal - discount + cleaningFee + serviceFee;
+  const hostPhone = property.host?.phone_number;
 
   const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +111,14 @@ export function BookingWidget({ property, selectedUnit }: BookingWidgetProps) {
       });
 
       if (res.success && res.booking) {
+        // Append to the investor ledger before navigating; the local copy is
+        // immediate and the shared Supabase row follows in the background.
+        const ledgerEntry = bookingToLedgerEntry(res.booking, property);
+        MockStore.addLedgerEntry(ledgerEntry);
+        void recordLedgerEntry(ledgerEntry).catch((error) => {
+          console.error('Could not share this booking with the ledger', error);
+        });
+
         // Direct redirect to the booking confirmation voucher
         router.push(`/bookings/${res.booking.id}`);
       } else {
@@ -106,6 +129,88 @@ export function BookingWidget({ property, selectedUnit }: BookingWidgetProps) {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleContactRequest = (channel: 'whatsapp' | 'call') => {
+    setBookingError(null);
+    setContactFeedback(null);
+
+    if (!hostPhone) {
+      setContactFeedback({
+        type: 'error',
+        message:
+          'This host has not added a phone number yet. Send a booking request with the form above and the host will reply.',
+      });
+      return;
+    }
+
+    if (nights <= 0) {
+      setContactFeedback({ type: 'error', message: 'Choose valid stay dates first.' });
+      return;
+    }
+
+    const dialable = toDialablePhone(hostPhone);
+    const directTotal = subtotal - discount + cleaningFee; // settled with the host, no platform fee
+    const requestGuest = isAuthenticated
+      ? currentUser
+      : { ...currentUser, id: '', full_name: 'Website visitor', phone_number: undefined };
+
+    const entry = enquiryToLedgerEntry({
+      channel,
+      property,
+      unit: selectedUnit,
+      guest: requestGuest,
+      checkInDate: checkIn,
+      checkOutDate: checkOut,
+      numGuests,
+      totalPriceRwf: directTotal,
+      serviceFeeRwf: 0,
+      specialRequests,
+    });
+
+    // Store locally first so the enquiry is never lost, then share it.
+    MockStore.addLedgerEntry(entry);
+    setContacting(channel);
+
+    if (channel === 'whatsapp') {
+      const lines = [
+        `Muraho ${property.host?.full_name || 'host'}! I would like to request a booking on Memento.`,
+        '',
+        `Property: ${property.title}`,
+        `Unit: ${selectedUnit.name}`,
+        `Stay: ${formatDate(checkIn)} → ${formatDate(checkOut)} (${nights} ${nights === 1 ? 'night' : 'nights'})`,
+        `Guests: ${numGuests}`,
+        `Estimated total: ${formatRWF(directTotal)} (paid directly to host)`,
+        `Payment: pay at property`,
+        specialRequests.trim() ? `Requests: ${specialRequests.trim()}` : '',
+        '',
+        isAuthenticated ? `My name: ${currentUser.full_name}` : 'Sent from the Memento website',
+        `Request ref: ${entry.booking_ref}`,
+      ].filter(Boolean);
+
+      window.open(
+        `https://wa.me/${dialable}?text=${encodeURIComponent(lines.join('\n'))}`,
+        '_blank',
+        'noopener,noreferrer'
+      );
+    } else {
+      window.location.href = `tel:+${dialable}`;
+    }
+
+    void recordLedgerEntry(entry)
+      .then(() => {
+        setContactFeedback({
+          type: 'success',
+          message: `${channel === 'whatsapp' ? 'WhatsApp' : 'Call'} request ${entry.booking_ref} logged in the booking ledger for ${formatDate(checkIn)}.`,
+        });
+      })
+      .catch(() => {
+        setContactFeedback({
+          type: 'success',
+          message: `Request ${entry.booking_ref} saved on this device. It will be shared with the ledger once the connection is available.`,
+        });
+      })
+      .finally(() => setContacting(null));
   };
 
   return (
@@ -328,6 +433,64 @@ export function BookingWidget({ property, selectedUnit }: BookingWidgetProps) {
             ? 'Guaranteed confirmation immediately. Pay upon check-in.'
             : 'Host will review and confirm within 24 hours.'}
         </p>
+
+        {/* Direct request channels — every tap is recorded in the ledger */}
+        <div className="space-y-2 border-t border-stone-100 pt-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">
+              Prefer to talk first?
+            </span>
+            <span className="text-[10px] font-medium text-stone-400">Logged in the ledger</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => handleContactRequest('whatsapp')}
+              disabled={contacting !== null || nights <= 0}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 py-2.5 text-[11px] font-bold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-50"
+            >
+              {contacting === 'whatsapp' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <MessageCircle className="h-3.5 w-3.5" />
+              )}
+              <span>{contacting === 'whatsapp' ? 'Sending...' : 'WhatsApp host'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleContactRequest('call')}
+              disabled={contacting !== null || nights <= 0}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-stone-200 bg-white py-2.5 text-[11px] font-bold text-stone-800 transition-colors hover:bg-stone-50 disabled:opacity-50"
+            >
+              {contacting === 'call' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Phone className="h-3.5 w-3.5" />
+              )}
+              <span>{contacting === 'call' ? 'Opening...' : 'Call host'}</span>
+            </button>
+          </div>
+
+          <p className="text-center text-[10px] text-stone-400">
+            {hostPhone
+              ? `Host line: ${hostPhone} · your dates, unit and guest count are attached automatically.`
+              : 'This host has not published a phone number yet.'}
+          </p>
+
+          {contactFeedback && (
+            <div
+              className={`rounded-xl border p-2.5 text-[10px] font-medium ${
+                contactFeedback.type === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                  : 'border-amber-200 bg-amber-50 text-amber-900'
+              }`}
+            >
+              {contactFeedback.message}
+            </div>
+          )}
+        </div>
 
         {/* Trust Badges */}
         <div className="flex items-center justify-center gap-4 border-t border-stone-100 pt-3 text-[11px] text-stone-500">

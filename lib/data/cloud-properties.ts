@@ -277,6 +277,21 @@ export async function createCloudProperty({
     });
 
     if (profileError) throw new Error(profileError.message);
+  } else if (host.full_name || host.phone_number) {
+    // Keep the public host card reachable for WhatsApp/call requests. Only
+    // fill in the fields the host actually supplied during onboarding.
+    const profileUpdates: Record<string, string> = {};
+    if (host.full_name) profileUpdates.full_name = host.full_name;
+    if (host.phone_number) profileUpdates.phone_number = host.phone_number;
+
+    const { error: profileUpdateError } = await supabase
+      .from('profiles')
+      .update(profileUpdates)
+      .eq('id', user.id);
+
+    if (profileUpdateError) {
+      console.error('Could not update host contact details', profileUpdateError);
+    }
   }
 
   const city = property.city || 'Kigali';

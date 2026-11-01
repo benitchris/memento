@@ -21,6 +21,7 @@ import {
   Calendar,
   AlertCircle,
   Award,
+  Phone,
 } from 'lucide-react';
 
 export default function PropertyDetailPage() {
@@ -199,6 +200,15 @@ export default function PropertyDetailPage() {
               <p className="text-xs text-stone-500 mt-0.5">
                 Verified Host • Responds within 1 hour • Rwandan Hospitality Certified
               </p>
+              {property.host?.phone_number && (
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+                  <Phone className="h-3.5 w-3.5 text-[#1f4e3d]" />
+                  <span>{property.host.phone_number}</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-stone-400">
+                    Direct booking line
+                  </span>
+                </p>
+              )}
             </div>
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-tr from-[#b94726] to-[#d99b26] text-lg font-bold text-white shadow-md overflow-hidden">
               {property.host?.avatar_url ? (

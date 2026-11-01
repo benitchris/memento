@@ -9,6 +9,7 @@ import {
   fetchCloudProperties,
   fetchListingPublications,
 } from '@/lib/data/cloud-properties';
+import { fetchBookingLedger } from '@/lib/data/booking-ledger';
 import { createClient } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
 
@@ -28,6 +29,8 @@ interface MementoContextType {
   refresh: () => void;
   /** Bumps whenever shared marketplace listings are refreshed. */
   dataRevision: number;
+  /** True once the shared booking ledger is readable, false if migration 006 is missing. */
+  ledgerAvailable: boolean | null;
 }
 
 const defaultContext: MementoContextType = {
@@ -45,6 +48,7 @@ const defaultContext: MementoContextType = {
   setCurrency: () => {},
   refresh: () => {},
   dataRevision: 0,
+  ledgerAvailable: null,
 };
 
 const MementoContext = createContext<MementoContextType>(defaultContext);
@@ -61,6 +65,7 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
   ]);
   const [currency, setCurrency] = useState<'RWF' | 'USD'>('RWF');
   const [dataRevision, setDataRevision] = useState(0);
+  const [ledgerAvailable, setLedgerAvailable] = useState<boolean | null>(null);
 
   // Build a UserProfile from a Supabase user + optional DB profile row
   const buildProfile = useCallback(
@@ -99,12 +104,14 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
 
         const profile = buildProfile(user, data);
         setCurrentUser(profile);
+        MockStore.setCurrentUser(profile);
         setSupabaseUser(user);
         setIsAuthenticated(true);
       } catch {
         // Profile table might not exist yet — fall back to metadata
         const profile = buildProfile(user, null);
         setCurrentUser(profile);
+        MockStore.setCurrentUser(profile);
         setSupabaseUser(user);
         setIsAuthenticated(true);
       }
@@ -112,19 +119,23 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
     [buildProfile]
   );
 
-  // Pull the shared marketplace listings this account is allowed to see.
+  // Pull the shared marketplace listings and booking ledger this account is
+  // allowed to see.
   const syncCloudProperties = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
 
     try {
-      const [properties, publications] = await Promise.all([
+      const [properties, publications, ledger] = await Promise.all([
         fetchCloudProperties(),
         fetchListingPublications(),
+        fetchBookingLedger(),
       ]);
       MockStore.setCloudProperties(properties);
       MockStore.applyListingStatusOverrides(publications);
+      MockStore.setCloudLedger(ledger.entries);
+      setLedgerAvailable(ledger.supported);
     } catch (error) {
-      console.error('Could not load shared marketplace listings', error);
+      console.error('Could not load shared marketplace data', error);
     } finally {
       setDataRevision((revision) => revision + 1);
     }
@@ -213,6 +224,7 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
     setSupabaseUser(null);
     setIsAuthenticated(false);
     setCurrentUser(DEMO_USERS.traveller);
+    MockStore.setCurrentUser(DEMO_USERS.traveller);
     void syncCloudProperties();
   }, [syncCloudProperties]);
 
@@ -260,6 +272,7 @@ export function MementoProvider({ children }: { children: React.ReactNode }) {
         setCurrency,
         refresh,
         dataRevision,
+        ledgerAvailable,
       }}
     >
       {children}

@@ -81,6 +81,9 @@ When connecting your Supabase project:
      storage bucket and owner-only upload policies used by the host photo workflow.
    - `supabase/migrations/005_listing_publications.sql` — shares administrator review
      decisions for the bundled showcase listings across every account and device.
+   - `supabase/migrations/006_booking_ledger.sql` — creates `booking_ledger`, the shared
+     investor ledger that records platform bookings, WhatsApp requests and phone enquiries
+     across every device.
 4. Seed authentic Rwandan destinations and amenities:
    - Run `supabase/seed.sql` in the **Supabase SQL Editor**.
 5. Grant the first administrator manually in the SQL Editor:
@@ -121,6 +124,31 @@ The `[DEMO]` showcase stays bundled with the app. Its review decisions, includin
 pending Huye homestay, are published through `listing_publications` (migration 005) so an
 approval made in the admin portal is visible to travellers too.
 
+### Booking ledger and availability calendars
+
+Every reservation is also written to `booking_ledger` (migration 006) from the moment it is
+requested, giving administrators an investor-ready record of activity from day one.
+
+- **Platform bookings** (`channel = platform`) record the guest, unit, stay dates, guest
+  count, gross value and Memento service fee.
+- **WhatsApp and phone requests** from a property page are logged as `inquiry` rows with
+  `channel = whatsapp` or `call`, the host's number and the quoted direct stay value
+  (platform fee excluded). The reference is generated per channel — `MMT-WA-…`,
+  `MMT-CALL-…` — so enquiries are easy to trace.
+- **Statuses:** `inquiry → pending → confirmed → completed` (plus `rejected`/`cancelled`).
+  Hosts confirm or decline from the Host Dashboard → Availability & Calendar tab, and the
+  decision is mirrored to every device.
+- **Admin portal → Booking Ledger** shows confirmed GMV, booked-night commission, booked
+  nights and direct-enquiry conversion, with search, status/channel filters, CSV export and
+  a month calendar of booked dates.
+- **Host Dashboard → Availability & Calendar** shows the same calendar scoped to the host's
+  listings, plus the upcoming request cards and guest contact shortcuts.
+- Confirmed direct enquiries block availability exactly like platform bookings, so hosts
+  cannot be double-booked.
+
+Until migration 006 is applied in the Supabase SQL Editor, ledger rows fall back to the
+local store and the dashboards show a setup hint; no data is lost on the current device.
+
 ---
 
 ## 6. Project Directory Structure
@@ -148,7 +176,10 @@ approval made in the admin portal is visible to travellers too.
 │   ├── logo.tsx                # Original Memento brand emblem & typography
 │   ├── property-card.tsx       # Listing card with multi-unit badges & favourites
 │   ├── unit-selector.tsx       # Universal bookable unit selector with hierarchy warning
-│   ├── booking-widget.tsx      # Real-time pricing & availability reservation widget
+│   ├── booking-widget.tsx      # Real-time pricing, availability & WhatsApp/call requests
+│   ├── booking-ledger-view.tsx # Admin investor ledger with filters, CSV & calendar
+│   ├── stay-calendar.tsx       # Month occupancy calendar for booked dates
+│   ├── host-calendar-panel.tsx # Host availability calendar & request actions
 │   ├── category-bar.tsx        # Scrollable categories with icons
 │   └── search-widget.tsx       # Hero search bar with Rwandan autocomplete
 ├── lib/
@@ -156,6 +187,7 @@ approval made in the admin portal is visible to travellers too.
 │   ├── utils/format.ts         # RWF & USD currency, dates, booking references
 │   ├── data/mock-data.ts       # Realistic demonstration data for Rwanda
 │   ├── data/mock-store.ts      # Reactive client store with overlap checking
+│   ├── data/booking-ledger.ts  # Shared ledger persistence & enquiry recording
 │   └── supabase/               # Supabase browser & SSR server clients
 ├── supabase/
 │   ├── migrations/001_initial_schema.sql # Complete PostgreSQL schema, RLS & functions
@@ -163,6 +195,7 @@ approval made in the admin portal is visible to travellers too.
 │   ├── migrations/003_profile_role_guard.sql # Prevents self-promotion to admin
 │   ├── migrations/004_property_photo_storage.sql # Property photo bucket & policies
 │   ├── migrations/005_listing_publications.sql # Shared decisions for showcase listings
+│   ├── migrations/006_booking_ledger.sql # Shared booking & enquiry ledger
 │   └── seed.sql                # Rwandan destinations & amenities seed
 └── public/
     └── images/                 # High-resolution accommodation photography

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { MockStore } from '@/lib/data/mock-store';
 import { useMemento } from '@/lib/context/memento-context';
@@ -10,19 +10,23 @@ import {
   isCloudListing,
   persistCloudPropertyImages,
 } from '@/lib/data/cloud-properties';
+import {
+  buildLedgerEntries,
+  updateCloudLedgerStatus,
+} from '@/lib/data/booking-ledger';
+import { isSupabaseConfigured } from '@/lib/data/service';
+import { HostCalendarPanel } from '@/components/host-calendar-panel';
 import { formatRWF, formatUSD, formatDate } from '@/lib/utils/format';
 import {
   Building,
   Calendar,
   DollarSign,
-  Users,
   CheckCircle,
   XCircle,
   Plus,
   Clock,
   Layers,
   MessageSquare,
-  ShieldCheck,
   Eye,
   Check,
   Send,
@@ -31,13 +35,14 @@ import {
 } from 'lucide-react';
 
 export default function HostDashboardPage() {
-  const { currentUser, currency } = useMemento();
+  const { currentUser, currency, dataRevision, ledgerAvailable } = useMemento();
   const [activeTab, setActiveTab] = useState<'bookings' | 'properties' | 'calendar' | 'reviews'>('bookings');
   const [responseTexts, setResponseTexts] = useState<Record<string, string>>({});
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoEditorId, setPhotoEditorId] = useState<string | null>(null);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
+  const [busyLedgerRef, setBusyLedgerRef] = useState<string | null>(null);
   const [, bumpPhotoVersion] = useState(0);
 
   // A fresh listing submission lands here with ?submitted=<id>. Open the
@@ -58,7 +63,7 @@ export default function HostDashboardPage() {
   // Admins can audit any listing; hosts only ever see properties they own.
   const isAdmin = currentUser.role === 'admin';
 
-  const state = MockStore.getState();
+  const state = useMemo(() => MockStore.getState(), [dataRevision]);
   const hostProperties = state.properties.filter(
     (p) => isAdmin || p.host_id === currentUser.id
   );
@@ -66,6 +71,26 @@ export default function HostDashboardPage() {
   const editingProperty = photoEditorId
     ? hostProperties.find((property) => property.id === photoEditorId)
     : undefined;
+
+  // One ledger for the dashboard and the calendar. It merges this browser's
+  // bookings with the shared Supabase ledger rows.
+  const allLedgerEntries = useMemo(
+    () => buildLedgerEntries(state.bookings, state.properties, state.ledger),
+    [state]
+  );
+  const hostPropertyIds = new Set(hostProperties.map((property) => property.id));
+  const hostLedger = allLedgerEntries.filter(
+    (entry) =>
+      isAdmin ||
+      hostPropertyIds.has(entry.property_id) ||
+      (entry.host_id && entry.host_id === currentUser.id)
+  );
+  const confirmedLedger = hostLedger.filter(
+    (entry) => entry.status === 'confirmed' || entry.status === 'completed'
+  );
+  const actionableLedger = hostLedger.filter(
+    (entry) => entry.status === 'pending' || entry.status === 'inquiry'
+  );
 
   const handlePropertyPhotosChange = (images: PropertyImage[]) => {
     if (!photoEditorId) return;
@@ -108,15 +133,63 @@ export default function HostDashboardPage() {
   );
 
   const pendingBookings = hostBookings.filter((b) => b.status === 'pending');
-  const confirmedBookings = hostBookings.filter((b) => b.status === 'confirmed');
 
-  // Total earnings in RWF
-  const totalEarningsRWF = confirmedBookings.reduce((sum, b) => sum + (b.total_price_rwf - b.service_fee_rwf), 0);
+  // Total earnings in RWF, based on the shared ledger so it is correct on
+  // every device the host signs in from.
+  const totalEarningsRWF = confirmedLedger.reduce(
+    (sum, entry) => sum + (entry.total_price_rwf - entry.service_fee_rwf),
+    0
+  );
 
   const handleBookingAction = (bookingId: string, status: 'confirmed' | 'rejected') => {
+    const booking = state.bookings.find((item) => item.id === bookingId);
+
     MockStore.updateBookingStatus(bookingId, status);
+
+    if (booking) {
+      MockStore.updateLedgerEntryStatus(booking.booking_ref, status);
+      if (isSupabaseConfigured()) {
+        void updateCloudLedgerStatus(booking.booking_ref, status).catch((error) => {
+          console.error('Could not sync ledger status', error);
+        });
+      }
+    }
+
     setActionSuccessMsg(`Booking ${status === 'confirmed' ? 'confirmed' : 'declined'} successfully.`);
     setTimeout(() => setActionSuccessMsg(null), 3000);
+  };
+
+  const handleLedgerStatus = (bookingRef: string, status: 'confirmed' | 'rejected') => {
+    setBusyLedgerRef(bookingRef);
+
+    MockStore.updateLedgerEntryStatus(bookingRef, status);
+
+    const booking = state.bookings.find((item) => item.booking_ref === bookingRef);
+    if (booking) MockStore.updateBookingStatus(booking.id, status);
+
+    const finish = () => {
+      setBusyLedgerRef(null);
+      setActionSuccessMsg(
+        status === 'confirmed'
+          ? `Request ${bookingRef} confirmed — the dates are now booked.`
+          : `Request ${bookingRef} declined.`
+      );
+      setTimeout(() => setActionSuccessMsg(null), 3500);
+    };
+
+    if (isSupabaseConfigured()) {
+      updateCloudLedgerStatus(bookingRef, status)
+        .then(finish)
+        .catch((error) => {
+          console.error('Could not share ledger decision', error);
+          setBusyLedgerRef(null);
+          setActionSuccessMsg(
+            `Saved on this device, but could not sync ${bookingRef}. Try again when online.`
+          );
+        });
+    } else {
+      finish();
+    }
   };
 
   const handleHostReviewResponse = (reviewId: string) => {
@@ -245,9 +318,9 @@ export default function HostDashboardPage() {
             <Clock className="h-4 w-4 text-[#b94726]" />
           </div>
           <div className="mt-3 text-2xl font-extrabold text-[#b94726]">
-            {pendingBookings.length}
+            {actionableLedger.length}
           </div>
-          <p className="mt-1 text-[11px] text-stone-400">Requires your approval</p>
+          <p className="mt-1 text-[11px] text-stone-400">Requests &amp; enquiries to answer</p>
         </div>
 
         <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
@@ -256,9 +329,9 @@ export default function HostDashboardPage() {
             <CheckCircle className="h-4 w-4 text-[#1f4e3d]" />
           </div>
           <div className="mt-3 text-2xl font-extrabold text-stone-900">
-            {confirmedBookings.length}
+            {confirmedLedger.length}
           </div>
-          <p className="mt-1 text-[11px] text-stone-400">Upcoming arrivals</p>
+          <p className="mt-1 text-[11px] text-stone-400">Confirmed stays on the ledger</p>
         </div>
 
         <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
@@ -278,7 +351,7 @@ export default function HostDashboardPage() {
         {[
           { id: 'bookings', label: `Reservations (${hostBookings.length})` },
           { id: 'properties', label: `My Properties & Units (${hostProperties.length})` },
-          { id: 'calendar', label: 'Availability & Calendar' },
+          { id: 'calendar', label: `Availability & Calendar (${actionableLedger.length})` },
           { id: 'reviews', label: `Guest Reviews (${hostReviews.length})` },
         ].map((tab) => (
           <button
@@ -533,17 +606,13 @@ export default function HostDashboardPage() {
 
       {/* TAB 3: CALENDAR & AVAILABILITY */}
       {activeTab === 'calendar' && (
-        <div className="rounded-3xl border border-stone-200 bg-white p-8 shadow-sm text-center space-y-4">
-          <Calendar className="mx-auto h-12 w-12 text-[#1f4e3d]" />
-          <h3 className="text-lg font-bold text-stone-900">Universal Availability Synchronization</h3>
-          <p className="max-w-md mx-auto text-xs text-stone-500">
-            Whenever a booking is confirmed on an entire property, individual room availability is automatically blocked. When an individual room is booked, the whole-residence reservation is blocked.
-          </p>
-          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-1.5 text-xs font-bold text-emerald-800">
-            <ShieldCheck className="h-4 w-4" />
-            <span>Database Hierarchy Locks: Active</span>
-          </div>
-        </div>
+        <HostCalendarPanel
+          entries={hostLedger}
+          properties={hostProperties}
+          ledgerAvailable={ledgerAvailable}
+          onStatusChange={handleLedgerStatus}
+          busyRef={busyLedgerRef}
+        />
       )}
 
       {/* TAB 4: REVIEWS */}

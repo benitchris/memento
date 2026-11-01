@@ -8,6 +8,8 @@ import {
   Review,
   UserProfile,
   InAppNotification,
+  LedgerEntry,
+  LedgerStatus,
   SearchFilters,
   PropertyStatus,
 } from '@/lib/types';
@@ -30,6 +32,8 @@ interface StoreState {
   reviews: Review[];
   notifications: InAppNotification[];
   favourites: string[]; // property ids
+  /** Booking + enquiry ledger. Cloud rows are replaced on every sync. */
+  ledger: LedgerEntry[];
 }
 
 function getInitialState(): StoreState {
@@ -52,6 +56,7 @@ function getInitialState(): StoreState {
         },
       ],
       favourites: ['prop-kigali-nyarutarama', 'prop-rubavu-kivu-lodge'],
+      ledger: [],
     };
   }
 
@@ -59,7 +64,14 @@ function getInitialState(): StoreState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return parsed;
+      // Older saved stores predate the ledger. Cloud ledger rows are fetched
+      // fresh from Supabase, so anything persisted here is local-only.
+      return {
+        ...parsed,
+        ledger: Array.isArray(parsed.ledger)
+          ? parsed.ledger.filter((entry: LedgerEntry) => entry.source !== 'cloud')
+          : [],
+      };
     }
   } catch (e) {
     console.error('Error reading localStorage', e);
@@ -83,6 +95,7 @@ function getInitialState(): StoreState {
       },
     ],
     favourites: ['prop-kigali-nyarutarama', 'prop-rubavu-kivu-lodge'],
+    ledger: [],
   };
 }
 
@@ -97,6 +110,7 @@ function persist() {
       const persistedState = {
         ...memoryState,
         properties: memoryState.properties.filter((property) => property.source !== 'cloud'),
+        ledger: memoryState.ledger.filter((entry) => entry.source !== 'cloud'),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedState));
     } catch (e) {
@@ -166,6 +180,7 @@ export const MockStore = {
         },
       ],
       favourites: ['prop-kigali-nyarutarama'],
+      ledger: [],
     };
     persist();
   },
@@ -312,6 +327,52 @@ export const MockStore = {
     persist();
   },
 
+  // Keep the store aligned with the signed-in account so bookings and
+  // enquiries are attributed to the right person.
+  setCurrentUser(user: UserProfile) {
+    memoryState.currentUser = user;
+    persist();
+  },
+
+  // SHARED LEDGER: replace cloud rows while keeping this browser's local
+  // bookings and just-logged enquiries that have not synced yet.
+  setCloudLedger(entries: LedgerEntry[]) {
+    const cloudRefs = new Set(entries.map((entry) => entry.booking_ref));
+    const localEntries = memoryState.ledger.filter(
+      (entry) => entry.source !== 'cloud' && !cloudRefs.has(entry.booking_ref)
+    );
+
+    memoryState.ledger = [...entries, ...localEntries].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    persist();
+  },
+
+  /** Log a booking or WhatsApp/call request on this browser immediately. */
+  addLedgerEntry(entry: LedgerEntry) {
+    const index = memoryState.ledger.findIndex(
+      (item) => item.booking_ref === entry.booking_ref
+    );
+
+    if (index >= 0) {
+      memoryState.ledger[index] = { ...memoryState.ledger[index], ...entry };
+    } else {
+      memoryState.ledger.unshift(entry);
+    }
+
+    persist();
+  },
+
+  updateLedgerEntryStatus(bookingRef: string, status: LedgerStatus) {
+    const entry = memoryState.ledger.find((item) => item.booking_ref === bookingRef);
+    if (!entry) return false;
+
+    entry.status = status;
+    entry.updated_at = new Date().toISOString();
+    persist();
+    return true;
+  },
+
   // UNIVERSAL AVAILABILITY & HIERARCHY OVERLAP LOGIC (Section 4 & Section 10)
   checkUnitAvailability(
     unitId: string,
@@ -349,6 +410,18 @@ export const MockStore = {
       return start < bEnd && end > bStart;
     };
 
+    // Direct WhatsApp/call requests only block dates once the host confirms
+    // them. Platform bookings already live in memoryState.bookings, so skip
+    // ledger rows with a matching ref to avoid double counting.
+    const extraLedgerStays = memoryState.ledger.filter(
+      (entry) =>
+        entry.status === 'confirmed' &&
+        entry.check_in_date &&
+        entry.check_out_date &&
+        datesOverlap(entry.check_in_date, entry.check_out_date) &&
+        !memoryState.bookings.some((booking) => booking.booking_ref === entry.booking_ref)
+    );
+
     // 1. HIERARCHY OVERLAP CHECK
     // If targetUnit is an ENTIRE PROPERTY:
     if (targetUnit.is_entire_property) {
@@ -360,7 +433,10 @@ export const MockStore = {
           datesOverlap(b.check_in_date, b.check_out_date)
       );
 
-      if (conflictingBooking) {
+      if (
+        conflictingBooking ||
+        extraLedgerStays.some((entry) => entry.property_id === targetProperty!.id)
+      ) {
         return {
           available: false,
           reason: 'An individual room or unit within this property is already reserved for these dates.',
@@ -377,7 +453,13 @@ export const MockStore = {
           targetProperty!.units?.some((u) => u.id === b.unit_id && u.is_entire_property)
       );
 
-      if (entirePropertyBooking) {
+      const entirePropertyEnquiry = extraLedgerStays.find(
+        (entry) =>
+          entry.property_id === targetProperty!.id &&
+          targetProperty!.units?.some((u) => u.id === entry.unit_id && u.is_entire_property)
+      );
+
+      if (entirePropertyBooking || entirePropertyEnquiry) {
         return {
           available: false,
           reason: 'The entire property has been booked as a private residence for these dates.',
@@ -395,10 +477,14 @@ export const MockStore = {
       )
       .reduce((sum, b) => sum + b.num_units_booked, 0);
 
-    if (unitBookingsCount + quantity > targetUnit.total_inventory) {
+    const directBookingsCount = extraLedgerStays.filter(
+      (entry) => entry.unit_id === unitId
+    ).length;
+
+    if (unitBookingsCount + directBookingsCount + quantity > targetUnit.total_inventory) {
       return {
         available: false,
-        reason: `Only ${Math.max(0, targetUnit.total_inventory - unitBookingsCount)} unit(s) remaining for selected dates.`,
+        reason: `Only ${Math.max(0, targetUnit.total_inventory - unitBookingsCount - directBookingsCount)} unit(s) remaining for selected dates.`,
       };
     }
 

@@ -174,6 +174,45 @@ export interface Booking {
   guest?: UserProfile;
 }
 
+export type LedgerChannel = 'platform' | 'whatsapp' | 'call' | 'manual';
+export type LedgerStatus = 'inquiry' | 'pending' | 'confirmed' | 'rejected' | 'cancelled' | 'completed';
+
+/**
+ * One row in the investor booking ledger. Entries are keyed by
+ * `booking_ref`, which also lets an off-platform WhatsApp/call enquiry sit
+ * next to a platform booking without needing a real `bookings` row.
+ */
+export interface LedgerEntry {
+  booking_ref: string;
+  property_id: string;
+  property_title: string;
+  host_id?: string;
+  host_name?: string;
+  host_phone?: string;
+  guest_id?: string;
+  guest_name: string;
+  guest_phone?: string;
+  city?: string;
+  unit_id?: string;
+  unit_name?: string;
+  check_in_date: string;
+  check_out_date: string;
+  nights: number;
+  num_guests: number;
+  nightly_rate_rwf: number;
+  total_price_rwf: number;
+  service_fee_rwf: number;
+  currency: string;
+  channel: LedgerChannel;
+  status: LedgerStatus;
+  payment_method?: string;
+  special_requests?: string;
+  created_at: string;
+  updated_at?: string;
+  /** Cloud entries are shared through Supabase and excluded from localStorage. */
+  source?: 'local' | 'cloud';
+}
+
 export interface Review {
   id: string;
   booking_id: string;

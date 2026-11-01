@@ -9,8 +9,10 @@ import {
   updateCloudPropertyStatus,
 } from '@/lib/data/cloud-properties';
 import { isSupabaseConfigured } from '@/lib/data/service';
+import { buildLedgerEntries } from '@/lib/data/booking-ledger';
+import { BookingLedgerView } from '@/components/booking-ledger-view';
 import { useMemento } from '@/lib/context/memento-context';
-import { formatRWF, formatUSD, formatDate } from '@/lib/utils/format';
+import { formatRWF } from '@/lib/utils/format';
 import { PropertyStatus } from '@/lib/types';
 import {
   ShieldCheck,
@@ -28,7 +30,7 @@ import {
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const { currency, dataRevision } = useMemento();
+  const { dataRevision, ledgerAvailable } = useMemento();
 
   const [activeTab, setActiveTab] = useState<'approvals' | 'properties' | 'reservations' | 'settings'>('approvals');
   const [commissionRate, setCommissionRate] = useState<number>(8.0);
@@ -44,14 +46,19 @@ export default function AdminDashboard() {
     (p) => p.status === 'under_review' || p.status === 'submitted'
   );
 
-  const allBookings = state.bookings;
-  const totalGMV = allBookings
-    .filter((b) => b.status === 'confirmed' || b.status === 'completed')
-    .reduce((sum, b) => sum + b.total_price_rwf, 0);
+  const ledgerEntries = useMemo(
+    () => buildLedgerEntries(state.bookings, state.properties, state.ledger),
+    [state]
+  );
+  const bookedLedgerEntries = ledgerEntries.filter(
+    (entry) => entry.status === 'confirmed' || entry.status === 'completed'
+  );
+  const totalGMV = bookedLedgerEntries.reduce((sum, entry) => sum + entry.total_price_rwf, 0);
 
-  const platformRevenue = allBookings
-    .filter((b) => b.status === 'confirmed' || b.status === 'completed')
-    .reduce((sum, b) => sum + b.service_fee_rwf, 0);
+  const platformRevenue = bookedLedgerEntries.reduce(
+    (sum, entry) => sum + entry.service_fee_rwf,
+    0
+  );
 
   const handleUpdateStatus = async (propertyId: string, status: PropertyStatus) => {
     const property = MockStore.getPropertyById(propertyId);
@@ -205,7 +212,7 @@ export default function AdminDashboard() {
         {[
           { id: 'approvals', label: `Pending Approvals Queue (${pendingApprovals.length})` },
           { id: 'properties', label: `All Properties (${allProperties.length})` },
-          { id: 'reservations', label: `Platform Reservations (${allBookings.length})` },
+          { id: 'reservations', label: `Booking Ledger (${ledgerEntries.length})` },
           { id: 'settings', label: 'Financial & Commission Settings' },
         ].map((tab) => (
           <button
@@ -418,50 +425,9 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* TAB 3: PLATFORM RESERVATIONS */}
+      {/* TAB 3: INVESTOR BOOKING LEDGER */}
       {activeTab === 'reservations' && (
-        <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-stone-200 text-[10px] uppercase font-bold text-stone-400">
-              <tr>
-                <th className="pb-3">Ref</th>
-                <th className="pb-3">Accommodation</th>
-                <th className="pb-3">Guest</th>
-                <th className="pb-3">Stay Dates</th>
-                <th className="pb-3">Total Amount</th>
-                <th className="pb-3">Platform Fee</th>
-                <th className="pb-3">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100 font-medium">
-              {allBookings.map((b) => (
-                <tr key={b.id} className="hover:bg-stone-50">
-                  <td className="py-3 font-mono font-bold text-[#b94726]">{b.booking_ref}</td>
-                  <td className="py-3 font-semibold text-stone-900">{b.property?.title}</td>
-                  <td className="py-3 text-stone-700">{b.guest?.full_name}</td>
-                  <td className="py-3 text-stone-600">
-                    {formatDate(b.check_in_date)} — {formatDate(b.check_out_date)}
-                  </td>
-                  <td className="py-3 font-bold text-stone-900">{formatRWF(b.total_price_rwf)}</td>
-                  <td className="py-3 font-bold text-emerald-800">{formatRWF(b.service_fee_rwf)}</td>
-                  <td className="py-3">
-                    <span
-                      className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                        b.status === 'confirmed'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : b.status === 'pending'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-stone-100 text-stone-700'
-                      }`}
-                    >
-                      {b.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <BookingLedgerView entries={ledgerEntries} ledgerAvailable={ledgerAvailable} />
       )}
 
       {/* TAB 4: SETTINGS (Section 14: Pricing & Future Revenue) */}
